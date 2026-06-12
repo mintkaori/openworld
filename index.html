@@ -820,9 +820,17 @@ function buildSudal(){ // 수달이: 보드 타는 수달
   const tail = sph(0.2,0x8d5e3c, 0, b.bodyY-0.25, -0.45, 1,0.6,1.8);
   tail.rotation.x = 0.5; b.g.add(tail);
   const board = new THREE.Group();
-  board.add(box(1.7,0.1,0.62, 0x7a4fc9, 0,0.26,0));
-  for(const sx of [-0.55,0.55]) for(const sz of [-0.2,0.2])
-    board.add(cyl(0.11,0.11,0.1, 0x222222, sx,0.11,sz,10).rotateX(Math.PI/2));
+  board.add(box(0.62,0.1,1.7, 0x7a4fc9, 0,0.26,0));
+  board.add(sph(0.32,0x8f75d9, 0,0.26,0.86, 0.95,0.16,0.34));
+  board.add(sph(0.32,0x8f75d9, 0,0.26,-0.86, 0.95,0.16,0.34));
+  for(const sz of [-0.58,0.58]){
+    const axle = cyl(0.035,0.035,0.72, 0x777777, 0,0.14,sz,8);
+    axle.rotation.z = Math.PI/2; board.add(axle);
+    for(const sx of [-0.34,0.34]){
+      const wheel = cyl(0.11,0.11,0.1, 0x222222, sx,0.11,sz,10);
+      wheel.rotation.z = Math.PI/2; board.add(wheel);
+    }
+  }
   b.g.add(board); b.board = board;
   b.g.children.forEach(c=>{ if(c!==board) c.position.y += 0.3; });
   b.headTop += 0.3;
