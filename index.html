@@ -27,6 +27,10 @@
     font-size:12px;padding:6px 10px;border-radius:8px;display:none;white-space:pre-wrap;}
   #toggleHelp{position:fixed;z-index:11;top:12px;right:12px;width:34px;height:34px;border-radius:50%;
     border:2px solid #ffd9a0;background:rgba(255,255,255,.85);font-size:18px;cursor:pointer;}
+  #labelToggle{position:fixed;z-index:11;top:12px;right:54px;height:34px;display:flex;align-items:center;gap:6px;
+    border:2px solid #ffd9a0;border-radius:999px;background:rgba(255,255,255,.85);padding:0 10px;
+    color:#76502b;font-weight:800;font-size:13px;box-shadow:0 2px 8px rgba(80,60,20,.14);user-select:none;}
+  #labelToggle input{width:15px;height:15px;accent-color:#f06fa0;}
 </style>
 </head>
 <body>
@@ -40,6 +44,9 @@
   <div id="eventButtons" class="event-buttons" hidden></div>
 </div>
 <button id="toggleHelp" title="설명 켜기/끄기">?</button>
+<label id="labelToggle" title="캐릭터 이름표 표시">
+  <input id="labelToggleInput" type="checkbox"> 이름표
+</label>
 <div id="chips"></div>
 <div id="err"></div>
 
@@ -57,6 +64,8 @@ const errBox = document.getElementById('err');
 window.addEventListener('error', e=>{ errBox.style.display='block'; errBox.textContent='오류: '+e.message; });
 const titlePanel = document.getElementById('title');
 const eventButtonsEl = document.getElementById('eventButtons');
+const labelToggleInput = document.getElementById('labelToggleInput');
+let characterLabelsVisible = false;
 let eventButtonsUnlocked = false;
 let helpTapCount = 0;
 let lastHelpTapAt = 0;
@@ -80,6 +89,8 @@ document.getElementById('toggleHelp').onclick = ()=>{
   setTitlePanelVisible(!isTitlePanelVisible());
   eventButtonsEl.hidden = !eventButtonsUnlocked;
 };
+labelToggleInput.checked = characterLabelsVisible;
+labelToggleInput.onchange = ()=>setCharacterLabelsVisible(labelToggleInput.checked);
 
 /* ---------------- renderer / scene ---------------- */
 const renderer = new THREE.WebGLRenderer({antialias:true});
@@ -630,8 +641,7 @@ const signTex = canvasTexture(1024,160,(c,w,h)=>{
 school.add(mesh(new THREE.PlaneGeometry(14,2.2),
   new THREE.MeshBasicMaterial({map:signTex, transparent:true}), 0,8.9,5.15));
 const class32Tex = canvasTexture(256,160,(c,w,h)=>{
-  c.fillStyle='rgba(255,255,255,.96)'; roundRect(c,18,18,w-36,h-36,22); c.fill();
-  c.lineWidth=8; c.strokeStyle='#4f8fd8'; c.stroke();
+  c.clearRect(0, 0, w, h);
   c.fillStyle='#285f9f'; c.font='900 78px "Malgun Gothic", sans-serif';
   c.textAlign='center'; c.textBaseline='middle'; c.fillText('3-2', w/2, h/2+4);
 });
@@ -673,6 +683,36 @@ const graffiti = mesh(new THREE.PlaneGeometry(18,4.6),
   new THREE.MeshBasicMaterial({map:graffitiTex, transparent:true, side:THREE.DoubleSide}), 8.2,5.25,-5.18, false);
 graffiti.rotation.y = Math.PI;
 school.add(graffiti);
+const sudalChalkTex = canvasTexture(768,192,(c,w,h)=>{
+  c.clearRect(0,0,w,h);
+  c.save();
+  c.translate(w/2, h/2+6);
+  c.rotate(-0.025);
+  c.textAlign='center';
+  c.textBaseline='middle';
+  c.lineJoin='round';
+  c.lineCap='round';
+  c.font='900 78px "Malgun Gothic", sans-serif';
+  c.strokeStyle='rgba(255,255,255,.36)';
+  c.lineWidth=16;
+  c.strokeText('잘생긴 세훈이', 0, 0);
+  c.fillStyle='rgba(255,255,255,.96)';
+  c.fillText('잘생긴 세훈이', 0, 0);
+  for(let i=0;i<110;i++){
+    c.fillStyle = `rgba(255,255,255,${0.12+Math.random()*0.22})`;
+    c.beginPath();
+    c.arc(-300+Math.random()*600, -58+Math.random()*116, 1+Math.random()*2.4, 0, Math.PI*2);
+    c.fill();
+  }
+  c.restore();
+});
+const sudalChalkMat = new THREE.MeshBasicMaterial({
+  map:sudalChalkTex, transparent:true, depthWrite:false, opacity:0
+});
+const sudalChalk = mesh(new THREE.PlaneGeometry(4.9,1.25), sudalChalkMat, -12,6.62,5.28, false);
+sudalChalk.visible = false;
+sudalChalk.renderOrder = 6;
+school.add(sudalChalk);
 school.position.set(0,0,-48);
 scene.add(school);
 /* 덤불 */
@@ -942,6 +982,8 @@ function biped(o){
   const legs = [limb(o.legR??0.13, legH, o.legC??o.skin), limb(o.legR??0.13, legH, o.legC??o.skin)];
   legs[0].position.set(-bodyR*0.5, legH+0.16, 0);
   legs[1].position.set( bodyR*0.5, legH+0.16, 0);
+  legs[0].userData.basePosition = legs[0].position.clone();
+  legs[1].userData.basePosition = legs[1].position.clone();
   g.add(legs[0], legs[1]);
   const bodyY = legH + bodyH/2 + 0.05;
   const body = cap(bodyR, bodyH*0.6, o.bodyC??o.skin, 0, bodyY, 0);
@@ -949,6 +991,8 @@ function biped(o){
   const arms = [limb(o.armR??0.11, o.armH??0.44, o.armC??o.skin), limb(o.armR??0.11, o.armH??0.44, o.armC??o.skin)];
   arms[0].position.set(-bodyR-0.06, bodyY+bodyH*0.22, 0);
   arms[1].position.set( bodyR+0.06, bodyY+bodyH*0.22, 0);
+  arms[0].userData.basePosition = arms[0].position.clone();
+  arms[1].userData.basePosition = arms[1].position.clone();
   g.add(arms[0], arms[1]);
   const headG = new THREE.Group();
   const head = sph(headR, o.headC??o.skin, 0,0,0);
@@ -1275,6 +1319,11 @@ const kids = [];
 const tmpV = new THREE.Vector3();
 let lastChatAt = -99; /* 말풍선 동시 발생 방지 */
 let songmi = null;
+function setCharacterLabelsVisible(visible){
+  characterLabelsVisible = visible;
+  if(labelToggleInput) labelToggleInput.checked = visible;
+  kids.forEach(k=>{ if(k.label) k.label.visible = visible; });
+}
 
 class Kid {
   constructor(cfg){
@@ -1297,6 +1346,7 @@ class Kid {
     this.ambientT = 14 + Math.random()*26;
     this.label = makeLabel(`${this.name} · ${this.owner}`, this.color);
     this.label.position.y = (b.headTop + 0.75);
+    this.label.visible = characterLabelsVisible;
     this.g.add(this.label);
     scene.add(this.g);
   }
@@ -1419,6 +1469,42 @@ function wanderPlay(center, radius, pauseMin=3, pauseMax=7){
     if(d < 0.5){ k._tgt = null; k._wait = pauseMin + Math.random()*(pauseMax-pauseMin); }
   };
 }
+function restoreLimbBasePositions(k){
+  k.b.arms?.forEach(a=>{ if(a.userData.basePosition) a.position.copy(a.userData.basePosition); });
+  k.b.legs?.forEach(l=>{ if(l.userData.basePosition) l.position.copy(l.userData.basePosition); });
+}
+function applyMonkeyClimbPose(k, u, t){
+  const step = u * Math.PI * 8;
+  const pullL = Math.max(0, Math.sin(step));
+  const pullR = Math.max(0, -Math.sin(step));
+  const grip = Math.sin(step);
+  const arms = k.b.arms ?? [], legs = k.b.legs ?? [];
+  k.g.rotation.x = Math.sin(step*0.5) * 0.07;
+  k.g.rotation.z = grip * 0.05;
+  k.walkAmt = 0.75;
+  if(arms.length >= 2){
+    arms[0].rotation.x = -2.15 + pullR*0.7;
+    arms[1].rotation.x = -2.15 + pullL*0.7;
+    arms[0].rotation.z = -0.42 - pullL*0.46;
+    arms[1].rotation.z = 0.42 + pullR*0.46;
+    arms[0].position.copy(arms[0].userData.basePosition);
+    arms[1].position.copy(arms[1].userData.basePosition);
+    arms[0].position.y += pullL*0.24;
+    arms[1].position.y += pullR*0.24;
+  }
+  if(legs.length >= 2){
+    legs[0].rotation.x = 1.25 - pullL*1.05;
+    legs[1].rotation.x = 1.25 - pullR*1.05;
+    legs[0].rotation.z = -0.22 - pullL*0.42;
+    legs[1].rotation.z = 0.22 + pullR*0.42;
+    legs[0].position.copy(legs[0].userData.basePosition);
+    legs[1].position.copy(legs[1].userData.basePosition);
+    legs[0].position.y += pullL*0.5;
+    legs[1].position.y += pullR*0.5;
+    legs[0].position.z += pullL*0.24;
+    legs[1].position.z += pullR*0.24;
+  }
+}
 function addKid(cfg){ const k = new Kid(cfg); kids.push(k); return k; }
 
 /* ---------------- 캐릭터 11명 ---------------- */
@@ -1469,13 +1555,13 @@ addKid({
     k.idle();
     if(u < 0.28){
       const c = u/0.28;
-      k.g.position.set(tx-1.1, c*climbH, tz+0.6);
+      k.g.position.set(tx-1.1 + Math.sin(c*Math.PI*12)*0.08, c*climbH, tz+0.55 + Math.sin(c*Math.PI*6)*0.06);
       k.g.rotation.y = 0;
-      k.b.arms[0].rotation.x = Math.sin(t*4.5)*0.9-0.6;
-      k.b.arms[1].rotation.x = -Math.sin(t*4.5)*0.9-0.6;
+      applyMonkeyClimbPose(k, c, t);
       k._skipLocomote = true;
     } else if(u < 0.62){
       const swing = Math.sin(t*2.3);
+      restoreLimbBasePositions(k);
       k.g.position.set(anchor.x, anchor.y-1.75 + Math.abs(swing)*0.18, anchor.z + swing*1.55);
       k.g.rotation.y = 0;
       k.g.rotation.x = -swing*0.22;
@@ -1487,6 +1573,7 @@ addKid({
       k._skipLocomote = true;
     } else if(u < 0.78){
       const c = (u-0.62)/0.16;
+      restoreLimbBasePositions(k);
       k.g.position.set(
         THREE.MathUtils.lerp(anchor.x, tx-1.1, c),
         THREE.MathUtils.lerp(anchor.y-1.75, 0, c),
@@ -1738,6 +1825,17 @@ function flyCamera(toP, toT, dur=1.1){
     toP: toP.clone(), toT: toT.clone()
   };
 }
+function focusCharacterFront(k){
+  const targetY = Math.max(1.2, (k.b?.headTop ?? 2.1) * 0.68);
+  const target = k.pos.clone().setY(targetY);
+  const heading = Number.isFinite(k.heading) ? k.heading : (k.g?.rotation?.y ?? 0);
+  const front = new THREE.Vector3(Math.sin(heading), 0, Math.cos(heading));
+  if(front.lengthSq() < 0.01) front.set(0, 0, 1);
+  front.normalize();
+  const toP = target.clone().addScaledVector(front, 10.5);
+  toP.y += 3.4;
+  flyCamera(toP, target, 1.1);
+}
 function makeChip(text, color, onClick){
   const c = document.createElement('button');
   c.className='chip';
@@ -1753,10 +1851,7 @@ kids.forEach((k)=>{
   makeChip(k.name, k.color, ()=>{
     k.say();
     puff(heartTex, k.pos.clone().setY(2), 4, {size:0.6});
-    const dir = new THREE.Vector3().subVectors(camera.position, controls.target);
-    dir.y = 0; dir.normalize(); if(dir.lengthSq() < 0.5) dir.set(0,0,1);
-    dir.y = 0.42; dir.normalize();
-    flyCamera(k.pos.clone().setY(1.6).addScaledVector(dir, 13), k.pos.clone().setY(1.6), 1.1);
+    focusCharacterFront(k);
   });
 });
 
@@ -1808,6 +1903,10 @@ renderer.domElement.addEventListener('dblclick', ()=>{
 const ripples = [];
 
 /* ---------------- 이벤트 매니저 ---------------- */
+const MAX_EVENT_SECONDS = 120;
+const SUDAL_CHALK_FADE_SECONDS = 120;
+const SUDAL_CHALK_KEY = 'openworld.sudalChalk.nextAt';
+let sudalChalkFadeT = 0;
 const trackPt = (lane,a,out)=> out.set(Math.cos(a)*lane, 0, -4+Math.sin(a)*lane*0.56);
 function cueRunner(){
   const cues=[];
@@ -1821,7 +1920,101 @@ function takeKids(n, filter){
   if(avail.length < n) return null;
   return avail.slice(0,n);
 }
-function release(ms){ ms.forEach(m=>{ const k=m.k??m; k.state='return'; k.g.rotation.x=0; }); }
+function setSudalChalkProgress(u){
+  sudalChalk.visible = true;
+  sudalChalkFadeT = 0;
+  sudalChalkMat.opacity = THREE.MathUtils.clamp(u, 0, 1);
+}
+function startSudalChalkFade(){
+  sudalChalk.visible = true;
+  sudalChalkFadeT = SUDAL_CHALK_FADE_SECONDS;
+  sudalChalkMat.opacity = 1;
+}
+function hideSudalChalk(){
+  sudalChalkFadeT = 0;
+  sudalChalkMat.opacity = 0;
+  sudalChalk.visible = false;
+}
+function updateSudalChalkFade(dt){
+  if(sudalChalkFadeT <= 0) return;
+  sudalChalkFadeT = Math.max(0, sudalChalkFadeT - dt);
+  sudalChalkMat.opacity = sudalChalkFadeT / SUDAL_CHALK_FADE_SECONDS;
+  if(sudalChalkFadeT <= 0) sudalChalk.visible = false;
+}
+function sudalChalkState(){
+  return {
+    visible:sudalChalk.visible,
+    opacity:Math.round(sudalChalkMat.opacity*1000)/1000,
+    fadeRemaining:Math.round(sudalChalkFadeT*10)/10
+  };
+}
+function moveKidFreelyToward(k, target, dt, mul=1){
+  tmpV.copy(target).sub(k.pos);
+  tmpV.y = 0;
+  const d = tmpV.length();
+  if(d > 0.05){
+    const want = Math.atan2(tmpV.x, tmpV.z);
+    let diff = want - k.heading;
+    while(diff > Math.PI) diff -= Math.PI*2;
+    while(diff < -Math.PI) diff += Math.PI*2;
+    k.heading += diff * Math.min(1, dt*7);
+    k.g.rotation.y = k.heading;
+    const step = Math.min(d, k.speed*mul*dt);
+    k.pos.x += Math.sin(k.heading)*step;
+    k.pos.z += Math.cos(k.heading)*step;
+    k.walkAmt = Math.min(1, k.walkAmt + dt*6);
+  } else {
+    k.walkAmt = Math.max(0, k.walkAmt - dt*6);
+  }
+  return d;
+}
+function resetEventPose(k){
+  k.g.rotation.x = 0;
+  k.g.rotation.z = 0;
+  k.g.position.y = 0;
+  k.walkAmt = 0;
+  k.gotoTarget = null;
+  k.celebT = 0;
+  k.startleT = 0;
+  k._skipLocomote = false;
+  if(k.b.arms?.length){
+    k.b.arms.forEach(a=>{
+      a.rotation.x = 0; a.rotation.z = 0;
+      if(a.userData.basePosition) a.position.copy(a.userData.basePosition);
+    });
+  }
+  if(k.b.legs?.length){
+    k.b.legs.forEach(l=>{
+      l.rotation.x = 0; l.rotation.z = 0;
+      if(l.userData.basePosition) l.position.copy(l.userData.basePosition);
+    });
+  }
+}
+function release(ms){ ms.forEach(m=>{ const k=m.k??m; resetEventPose(k); k.state='return'; }); }
+function releaseActiveEventKids(){ release(kids.filter(k=>k.state==='event')); }
+function limitEventDuration(ev, timeoutSeconds=MAX_EVENT_SECONDS, releaseKidsOnTimeout=true){
+  if(!ev) return null;
+  let elapsed = 0, timedOut = false;
+  const finish = (ctx={})=>{
+    if(timedOut) return;
+    timedOut = true;
+    ev.cancel?.(ctx);
+    if(releaseKidsOnTimeout) releaseActiveEventKids();
+  };
+  return {
+    ...ev,
+    cancel:finish,
+    update(dt,t){
+      if(timedOut) return true;
+      if(elapsed + dt >= timeoutSeconds){
+        finish({timedOut:true});
+        return true;
+      }
+      elapsed += dt;
+      return ev.update(dt,t);
+    }
+  };
+}
 
 function makeRace(){
   const ms = takeKids(3);
@@ -2090,15 +2283,14 @@ function makeMonkeyClimbEvt(){
       if(d < 0.7){ phase='climb'; pt=0; k.say('높은 나무도 척척!'); }
     } else if(phase === 'climb'){
       const u = Math.min(1, pt/5.2);
-      k.g.position.set(tx-1.2+Math.sin(t*6)*0.12, climbH*u, tz+0.8);
+      k.g.position.set(tx-1.2+Math.sin(u*Math.PI*12)*0.08, climbH*u, tz+0.75+Math.sin(u*Math.PI*6)*0.06);
       k.heading = 0; k.g.rotation.y = 0;
-      k.walkAmt = 0.7;
-      k.b.arms[0].rotation.x = -1.2 + Math.sin(t*7)*0.6;
-      k.b.arms[1].rotation.x = -1.2 - Math.sin(t*7)*0.6;
+      applyMonkeyClimbPose(k, u, t);
       if(Math.random()<dt*1.1) puff(sparkTex, k.pos.clone().setY(k.pos.y+0.9), 1, {size:0.42});
       if(u>=1){ phase='grab'; pt=0; }
     } else if(phase === 'grab'){
       const u = Math.min(1, pt/1.4);
+      restoreLimbBasePositions(k);
       k.g.position.set(
         THREE.MathUtils.lerp(tx-1.2, anchor.x, u),
         THREE.MathUtils.lerp(climbH, anchor.y-1.75, u),
@@ -2124,6 +2316,7 @@ function makeMonkeyClimbEvt(){
       if(pt>9){ phase='down'; pt=0; }
     } else if(phase === 'down'){
       const u = Math.min(1, pt/2.5);
+      restoreLimbBasePositions(k);
       k.g.position.set(
         THREE.MathUtils.lerp(anchor.x, base.x, u),
         THREE.MathUtils.lerp(anchor.y-1.75, 0, u),
@@ -2143,6 +2336,90 @@ function makeMonkeyClimbEvt(){
         k.g.rotation.x = 0;
         k.g.rotation.z = 0;
         release([k]);
+        return true;
+      }
+    }
+    return false;
+  }};
+}
+
+function makeSudalChalkEvt(){
+  const k = kids.find(k=>k.name==='수달이' && k.state==='play');
+  if(!k) return null;
+  const stand = new THREE.Vector3(-12, 0, -40.15);
+  const leave = new THREE.Vector3(-10.4, 0, -37.2);
+  const chalkPiece = cyl(0.045,0.045,0.55, 0xffffff, 0,0,0, 10);
+  chalkPiece.rotation.z = Math.PI/2;
+  scene.add(chalkPiece);
+  k.state = 'event';
+  k.gotoTarget = null;
+  k.celebT = 0;
+  k.startleT = 0;
+  k.walkAmt = 0;
+  let phase = 'approach', pt = 0, cleaned = false, wrote = false, saidWrite = false;
+  const faceWall = ()=>{
+    k.heading = Math.PI;
+    k.g.rotation.y = Math.PI;
+  };
+  const setChalkPiece = (t)=>{
+    chalkPiece.visible = true;
+    const sx = -12 + Math.sin(t*2.1)*1.05;
+    const sy = 6.58 + Math.sin(t*3.7)*0.24;
+    chalkPiece.position.set(sx, sy, -42.58);
+    chalkPiece.rotation.y = Math.PI/2 + Math.sin(t*1.8)*0.18;
+  };
+  const finish = (ctx={})=>{
+    if(cleaned) return;
+    cleaned = true;
+    scene.remove(chalkPiece);
+    chalkPiece.geometry?.dispose?.();
+    chalkPiece.material?.dispose?.();
+    if(ctx.manualSwitch && !wrote) hideSudalChalk();
+    resetEventPose(k);
+    release([k]);
+  };
+  return {kind:'sudalChalk', cancel:finish, update(dt,t){
+    pt += dt;
+    if(phase === 'approach'){
+      const d = moveKidFreelyToward(k, stand, dt, 1.05);
+      k.locomote(dt,t);
+      chalkPiece.visible = false;
+      if(d < 0.55){
+        phase = 'write';
+        pt = 0;
+        k.say('잠깐만, 분필로 써야지!');
+        setSudalChalkProgress(0);
+      }
+    } else if(phase === 'write'){
+      k.g.position.copy(stand);
+      faceWall();
+      k.idle();
+      k.locomote(dt,t);
+      const writeU = Math.min(1, pt/8.5);
+      setSudalChalkProgress(THREE.MathUtils.smoothstep(writeU, 0, 1));
+      setChalkPiece(t);
+      if(k.b.arms?.length >= 2){
+        k.b.arms[0].rotation.x = -1.1 + Math.sin(t*5)*0.22;
+        k.b.arms[1].rotation.x = -1.65 + Math.sin(t*6)*0.18;
+        k.b.arms[1].rotation.z = -0.35 + Math.sin(t*4.2)*0.22;
+      }
+      if(!saidWrite && pt > 4.2){
+        saidWrite = true;
+        k.say('잘생긴 세훈이~');
+      }
+      if(writeU >= 1){
+        wrote = true;
+        startSudalChalkFade();
+        phase = 'leave';
+        pt = 0;
+        k.say('다 썼다!');
+      }
+    } else if(phase === 'leave'){
+      const d = moveKidFreelyToward(k, leave, dt, 1.1);
+      k.locomote(dt,t);
+      chalkPiece.visible = false;
+      if(d < 0.7 || pt > 5.5){
+        finish();
         return true;
       }
     }
@@ -2192,11 +2469,30 @@ function makeCatBallEvt(){
   });
   let pt=0, lastPass=-1, nextSpark=0;
   const fromV = new THREE.Vector3(), toV = new THREE.Vector3(), tv = new THREE.Vector3();
+  const dur = MAX_EVENT_SECONDS;
+  const outroStart = dur - 7;
+  let cleaned = false;
+  const finish = ()=>{
+    if(cleaned) return;
+    cleaned = true;
+    members.forEach(m=>{
+      if(m.k.b.arms?.length){
+        m.k.b.arms[0].rotation.x = 0; m.k.b.arms[1].rotation.x = 0;
+        m.k.b.arms[0].rotation.z = 0; m.k.b.arms[1].rotation.z = 0;
+      }
+    });
+    release(members);
+    clearCatGuest(cat1); clearCatGuest(cat2);
+    scene.remove(cageBall);
+    cageBall.traverse(o=>{
+      if(o.isMesh){ o.geometry?.dispose?.(); o.material?.dispose?.(); }
+    });
+  };
   cat1.say('안녕! 우리랑 놀아줘!');
   cat2.say('공 던지기 하자!');
-  return {kind:'catBall', update(dt,t){
+  return {kind:'catBall', cancel:finish, update(dt,t){
     pt += dt;
-    const outro = pt > 173 ? 1-THREE.MathUtils.smoothstep((pt-173)/7, 0, 1) : 1;
+    const outro = pt > outroStart ? 1-THREE.MathUtils.smoothstep((pt-outroStart)/7, 0, 1) : 1;
     const intro = THREE.MathUtils.smoothstep(Math.min(pt/7,1), 0, 1);
     const visibleScale = Math.max(0.04, intro*outro);
     cat1.group.scale.setScalar(1.15*visibleScale);
@@ -2275,19 +2571,8 @@ function makeCatBallEvt(){
       nextSpark = 0.55;
       puff(sparkTex, cageBall.position.clone(), 1, {size:0.42, life:0.85});
     }
-    if(pt < 180) return false;
-    members.forEach(m=>{
-      if(m.k.b.arms?.length){
-        m.k.b.arms[0].rotation.x = 0; m.k.b.arms[1].rotation.x = 0;
-        m.k.b.arms[0].rotation.z = 0; m.k.b.arms[1].rotation.z = 0;
-      }
-    });
-    release(members);
-    clearCatGuest(cat1); clearCatGuest(cat2);
-    scene.remove(cageBall);
-    cageBall.traverse(o=>{
-      if(o.isMesh){ o.geometry?.dispose?.(); o.material?.dispose?.(); }
-    });
+    if(pt < dur) return false;
+    finish();
     return true;
   }};
 }
@@ -2330,6 +2615,28 @@ function dueDailyPlan(kind, startHour, endHour, choices=null){
   if(plan.fired || m < startHour*60 || m >= endHour*60 || m < plan.minute) return null;
   return plan;
 }
+let sudalChalkNextFallback = 0;
+function scheduleNextSudalChalk(now=Date.now()){
+  const next = now + (52 + Math.random()*16) * 60 * 1000;
+  sudalChalkNextFallback = next;
+  try{ localStorage.setItem(SUDAL_CHALK_KEY, String(Math.round(next))); }catch{}
+  return next;
+}
+function getSudalChalkNextAt(now=Date.now()){
+  let next = sudalChalkNextFallback;
+  try{ next = Number(localStorage.getItem(SUDAL_CHALK_KEY) || next || 0); }catch{}
+  if(!Number.isFinite(next) || next <= 0 || next < now - 70*60*1000){
+    next = scheduleNextSudalChalk(now);
+  }
+  return next;
+}
+function tryStartScheduledSudalChalk(){
+  const now = Date.now();
+  if(now < getSudalChalkNextAt(now)) return null;
+  const ev = limitEventDuration(makeSudalChalkEvt());
+  if(ev) scheduleNextSudalChalk(now);
+  return ev;
+}
 
 function makeMathGuestEvt(guestId=null){
   const def = MATH_GUESTS.find(g=>g.id===guestId || g.name===guestId) ?? pick(MATH_GUESTS);
@@ -2349,7 +2656,20 @@ function makeMathGuestEvt(guestId=null){
   });
   let pt=0, nextSay=1.2;
   const tv = new THREE.Vector3();
-  return {kind:'mathGuest', guest:def.name, update(dt,t){
+  let cleaned = false;
+  const finish = ()=>{
+    if(cleaned) return;
+    cleaned = true;
+    guest.clear();
+    scene.remove(guest.group);
+    members.forEach(m=>{
+      if(m.k.b.arms?.length >= 2){
+        m.k.b.arms[0].rotation.z = 0; m.k.b.arms[1].rotation.z = 0;
+      }
+    });
+    release(members);
+  };
+  return {kind:'mathGuest', guest:def.name, cancel:finish, update(dt,t){
     pt += dt;
     const intro = THREE.MathUtils.smoothstep(Math.min(pt/8,1), 0, 1);
     const outro = pt > 84 ? 1-THREE.MathUtils.smoothstep((pt-84)/6, 0, 1) : 1;
@@ -2393,21 +2713,14 @@ function makeMathGuestEvt(guestId=null){
 
     if(Math.random() < dt*1.8) puff(sparkTex, center.clone().setY(8.5), 1, {size:0.9, life:1.6});
     if(pt < 90) return false;
-    guest.clear();
-    scene.remove(guest.group);
-    members.forEach(m=>{
-      if(m.k.b.arms?.length >= 2){
-        m.k.b.arms[0].rotation.z = 0; m.k.b.arms[1].rotation.z = 0;
-      }
-    });
-    release(members);
+    finish();
     return true;
   }};
 }
 function tryStartScheduledMathEvent(){
   const plan = dueDailyPlan('mathGuest', 9, 12, MATH_GUESTS.map(g=>g.id));
   if(!plan) return null;
-  const ev = makeMathGuestEvt(plan.choice);
+  const ev = limitEventDuration(makeMathGuestEvt(plan.choice));
   markDailyPlanFired('mathGuest', plan);
   return ev;
 }
@@ -2415,7 +2728,7 @@ function tryStartScheduledMathEvent(){
 function tryStartScheduledCatBallEvent(){
   const plan = dueDailyPlan('catBall', 8, 12);
   if(!plan) return null;
-  const ev = makeCatBallEvt();
+  const ev = limitEventDuration(makeCatBallEvt());
   markDailyPlanFired('catBall', plan);
   return ev;
 }
@@ -2426,7 +2739,13 @@ function makeDroneNyangEvt(){
   toonify(drone.group);
   let pt=0, trailT=0;
   const dur = 26;
-  return {kind:'droneNyang', update(dt,t){
+  let cleaned = false;
+  const finish = ()=>{
+    if(cleaned) return;
+    cleaned = true;
+    scene.remove(drone.group);
+  };
+  return {kind:'droneNyang', cancel:finish, update(dt,t){
     pt += dt; trailT -= dt;
     const u = Math.min(1, pt/dur);
     const e = u<0.5 ? 2*u*u : 1-Math.pow(-2*u+2,2)/2;
@@ -2444,21 +2763,22 @@ function makeDroneNyangEvt(){
       puff(sparkTex, drone.group.position.clone().add(new THREE.Vector3(-1.8,-0.5,0)), 1, {size:0.36, life:0.8});
     }
     if(pt < dur) return false;
-    scene.remove(drone.group);
+    finish();
     return true;
   }};
 }
 function tryStartScheduledDroneEvent(){
   const plan = dueDailyPlan('droneNyang', 8, 12);
   if(!plan) return null;
-  const ev = makeDroneNyangEvt();
+  const ev = limitEventDuration(makeDroneNyangEvt(), MAX_EVENT_SECONDS, false);
   markDailyPlanFired('droneNyang', plan);
   return ev;
 }
 
 const EVENT_MAKERS = {
   race:makeRace, dance:makeDance, chat:makeChat, swing:makeSwingEvt,
-  slide:makeSlideEvt, monkey:makeMonkeyClimbEvt, math:makeMathGuestEvt, catBall:makeCatBallEvt
+  slide:makeSlideEvt, monkey:makeMonkeyClimbEvt, math:makeMathGuestEvt,
+  catBall:makeCatBallEvt, sudalChalk:makeSudalChalkEvt
 };
 let evt = null;
 let skyEvt = null;
@@ -2466,7 +2786,39 @@ let evtTimer = 14 + Math.random()*8;
 function tryStartEvent(name){
   const maker = EVENT_MAKERS[name ?? pick(['race','dance','chat','swing','slide','monkey','race','dance'])];
   if(!maker) return null;
-  return maker();
+  return limitEventDuration(maker());
+}
+function prepareManualEventStart(){
+  swingState.rider = null;
+  kids.forEach(k=>{
+    if(k.state === 'event' || k.state === 'return'){
+      resetEventPose(k);
+      k.state = 'play';
+      k.playT = 0;
+    }
+  });
+}
+function replaceMainEvent(factory){
+  if(evt){
+    evt.cancel?.({manualSwitch:true});
+    evt = null;
+  }
+  prepareManualEventStart();
+  const next = factory();
+  if(!next) return false;
+  evt = next;
+  evtTimer = 34 + Math.random()*26;
+  return true;
+}
+function replaceSkyEvent(factory){
+  if(skyEvt){
+    skyEvt.cancel?.({manualSwitch:true});
+    skyEvt = null;
+  }
+  const next = factory();
+  if(!next) return false;
+  skyEvt = next;
+  return true;
 }
 
 /* ---------------- main loop ---------------- */
@@ -2474,22 +2826,26 @@ const clock2 = new THREE.Clock();
 window.__ow = {
   kids, camera, controls,
   resetCamera:()=>flyCamera(DEFAULT_CAMERA_POSITION, DEFAULT_CAMERA_TARGET, 1.0),
-  forceEvent:(n)=>{ if(!evt){ evt = tryStartEvent(n); return !!evt; } return false; },
-  forceMathGuest:(n)=>{ if(!evt){ evt = makeMathGuestEvt(n); return !!evt; } return false; },
-  forceCatBall:()=>{ if(!evt){ evt = makeCatBallEvt(); return !!evt; } return false; },
-  forceDroneNyang:()=>{ if(!skyEvt){ skyEvt = makeDroneNyangEvt(); return true; } return false; },
+  forceEvent:(n)=>replaceMainEvent(()=>tryStartEvent(n)),
+  forceMathGuest:(n)=>replaceMainEvent(()=>limitEventDuration(makeMathGuestEvt(n))),
+  forceCatBall:()=>replaceMainEvent(()=>limitEventDuration(makeCatBallEvt())),
+  forceSudalChalk:()=>replaceMainEvent(()=>limitEventDuration(makeSudalChalkEvt())),
+  forceDroneNyang:()=>replaceSkyEvent(()=>limitEventDuration(makeDroneNyangEvt(), MAX_EVENT_SECONDS, false)),
   getEvt:()=>evt,
   getSkyEvt:()=>skyEvt,
+  getSudalChalkState:()=>sudalChalkState(),
   getPlans:()=>({
     math:getDailyPlan('mathGuest', 9, 12, MATH_GUESTS.map(g=>g.id)),
     drone:getDailyPlan('droneNyang', 8, 12),
-    cat:getDailyPlan('catBall', 8, 12)
+    cat:getDailyPlan('catBall', 8, 12),
+    sudalChalkNextAt:getSudalChalkNextAt()
   })
 };
 [
   ['달리기','race'], ['강강술래','dance'], ['수다','chat'], ['그네','swing'],
   ['미끄럼틀','slide'], ['뭉키 나무','monkey'], ['알라코 수학','math:alaco'],
-  ['코기코 수학','math:cogico'], ['수학 랜덤','math'], ['고양이 공놀이','catBall']
+  ['코기코 수학','math:cogico'], ['수학 랜덤','math'], ['고양이 공놀이','catBall'],
+  ['수달이 낙서','sudalChalk']
 ].forEach(([label, name])=>{
   const b = document.createElement('button');
   b.type = 'button';
@@ -2499,6 +2855,7 @@ window.__ow = {
     else if(name === 'math:cogico') window.__ow.forceMathGuest('cogico');
     else if(name === 'math') window.__ow.forceMathGuest();
     else if(name === 'catBall') window.__ow.forceCatBall();
+    else if(name === 'sudalChalk') window.__ow.forceSudalChalk();
     else window.__ow.forceEvent(name);
   };
   eventButtonsEl.appendChild(b);
@@ -2531,7 +2888,7 @@ function animate(){
   if(evt){
     if(evt.update(dt, t)){ evt = null; evtTimer = 34 + Math.random()*26; }
   } else {
-    const scheduled = tryStartScheduledCatBallEvent() || tryStartScheduledMathEvent();
+    const scheduled = tryStartScheduledSudalChalk() || tryStartScheduledCatBallEvent() || tryStartScheduledMathEvent();
     if(scheduled){
       evt = scheduled;
       evtTimer = 34 + Math.random()*26;
@@ -2543,6 +2900,7 @@ function animate(){
       }
     }
   }
+  updateSudalChalkFade(dt);
 
   /* 그네 흔들림 */
   swingState.amp += ((swingState.rider?0.55:0) - swingState.amp) * Math.min(1, dt*0.5);
