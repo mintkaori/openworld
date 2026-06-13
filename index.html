@@ -18,10 +18,12 @@
   .event-buttons button{border:1px solid rgba(138,90,43,.35);border-radius:8px;background:#fffaf0;color:#76502b;
     font-weight:800;font-size:12px;padding:6px 8px;cursor:pointer;box-shadow:0 1px 4px rgba(80,60,20,.12);}
   .event-buttons button:hover{background:#fff1cf;}
-  #chips{position:fixed;z-index:10;left:50%;transform:translateX(-50%);bottom:12px;display:flex;
-    flex-wrap:wrap;gap:6px;justify-content:center;max-width:92vw;}
-  .chip{border:2px solid rgba(120,80,30,.25);border-radius:999px;padding:5px 12px;font-size:13px;
-    font-weight:700;cursor:pointer;box-shadow:0 2px 6px rgba(60,40,10,.2);transition:transform .12s;}
+  #chips{position:fixed;z-index:1000;left:50%;transform:translateX(-50%);bottom:86px;display:flex;
+    flex-wrap:wrap;gap:7px;justify-content:center;max-width:min(980px,88vw);padding:8px 10px;
+    border:2px solid rgba(255,217,160,.88);border-radius:16px;background:rgba(255,255,255,.72);
+    box-shadow:0 10px 28px rgba(40,35,20,.24);backdrop-filter:blur(4px);}
+  .chip{border:2px solid rgba(120,80,30,.32);border-radius:999px;padding:6px 13px;font-size:14px;
+    font-weight:800;cursor:pointer;box-shadow:0 3px 8px rgba(60,40,10,.25);transition:transform .12s;}
   .chip:hover{transform:translateY(-3px) scale(1.06);}
   #err{position:fixed;z-index:99;bottom:8px;left:8px;max-width:90vw;background:#fff0f0;color:#b00;
     font-size:12px;padding:6px 10px;border-radius:8px;display:none;white-space:pre-wrap;}
