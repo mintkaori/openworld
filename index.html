@@ -2717,6 +2717,54 @@ function makeMathGuestEvt(guestId=null){
     return true;
   }};
 }
+function makePadakFlyEvt(){
+  const k = kids.find(kid=>kid.name==='파닥이' && kid.state==='play');
+  if(!k) return null;
+  k.state = 'event';
+  k.gotoTarget = null; k.celebT = 0; k.startleT = 0; k.walkAmt = 0;
+  const baseY = k.g.position.y;
+  const peakH = 9;
+  let phase = 'up', pt = 0, said = false;
+  return {kind:'padakFly', update(dt,t){
+    pt += dt;
+    const flap = Math.sin(t*18);
+    if(k.b.arms?.length >= 2){
+      k.b.arms[0].rotation.z = 1.0 + flap*1.2;
+      k.b.arms[1].rotation.z = -1.0 - flap*1.2;
+    }
+    if(phase === 'up'){
+      if(!said){ said=true; k.say('하늘을 날고 싶어!'); }
+      const u = Math.min(1, pt/2.2);
+      const e = Math.sin(u*Math.PI/2);
+      k.g.position.y = baseY + e*peakH;
+      k.g.rotation.x = -0.3*e;
+      if(Math.random() < dt*8) puff(sparkTex, k.pos.clone(), 1, {size:0.4, life:0.8});
+      if(u >= 1){ phase='hover'; pt=0; said=false; }
+    } else if(phase === 'hover'){
+      k.g.position.y = baseY + peakH + Math.sin(t*2.4)*0.4;
+      k.g.rotation.x = Math.sin(t*2.4)*0.08;
+      k.heading += dt*1.1; k.g.rotation.y = k.heading;
+      if(Math.random() < dt*4) puff(sparkTex, k.pos.clone(), 1, {size:0.45, life:0.9});
+      if(!said && pt > 0.6){ said=true; k.say(pick(['야호, 신난다!','바람이 좋아~'])); }
+      if(pt > 3){ phase='down'; pt=0; }
+    } else if(phase === 'down'){
+      const u = Math.min(1, pt/2.2);
+      const e = 1-Math.sin(u*Math.PI/2);
+      k.g.position.y = baseY + e*peakH;
+      k.g.rotation.x = -0.3*e;
+      if(Math.random() < dt*6) puff(sparkTex, k.pos.clone(), 1, {size:0.4, life:0.8});
+      if(u >= 1){ phase='end'; pt=0; }
+    } else {
+      k.g.position.y = baseY;
+      k.g.rotation.x = 0;
+      if(k.b.arms?.length >= 2){ k.b.arms[0].rotation.z=0; k.b.arms[1].rotation.z=0; }
+      k.idle(); k.locomote(dt,t);
+      if(!said){ said=true; k.say('잘 다녀왔어!'); }
+      if(pt > 1.2){ release([k]); return true; }
+    }
+    return false;
+  }};
+}
 function tryStartScheduledMathEvent(){
   const plan = dueDailyPlan('mathGuest', 9, 12, MATH_GUESTS.map(g=>g.id));
   if(!plan) return null;
@@ -2783,6 +2831,8 @@ const EVENT_MAKERS = {
 let evt = null;
 let skyEvt = null;
 let evtTimer = 14 + Math.random()*8;
+let padakFlyEvt = null;
+let padakFlyTimer = 2700 + Math.random()*1800; /* 약 45~75분 간격 */
 function tryStartEvent(name){
   const maker = EVENT_MAKERS[name ?? pick(['race','dance','chat','swing','slide','monkey','race','dance'])];
   if(!maker) return null;
@@ -2831,6 +2881,7 @@ window.__ow = {
   forceCatBall:()=>replaceMainEvent(()=>limitEventDuration(makeCatBallEvt())),
   forceSudalChalk:()=>replaceMainEvent(()=>limitEventDuration(makeSudalChalkEvt())),
   forceDroneNyang:()=>replaceSkyEvent(()=>limitEventDuration(makeDroneNyangEvt(), MAX_EVENT_SECONDS, false)),
+  forcePadakFly:()=>{ if(padakFlyEvt) return false; if(padak.state!=='play') return false; padakFlyEvt = makePadakFlyEvt(); return !!padakFlyEvt; },
   getEvt:()=>evt,
   getSkyEvt:()=>skyEvt,
   getSudalChalkState:()=>sudalChalkState(),
@@ -2865,6 +2916,11 @@ droneBtn.type = 'button';
 droneBtn.textContent = '드론냥이';
 droneBtn.onclick = ()=>window.__ow.forceDroneNyang();
 eventButtonsEl.appendChild(droneBtn);
+const padakFlyBtn = document.createElement('button');
+padakFlyBtn.type = 'button';
+padakFlyBtn.textContent = '파닥이 비행';
+padakFlyBtn.onclick = ()=>window.__ow.forcePadakFly();
+eventButtonsEl.appendChild(padakFlyBtn);
 const resetBtn = document.createElement('button');
 resetBtn.type = 'button';
 resetBtn.textContent = '기본구도';
@@ -2901,6 +2957,17 @@ function animate(){
     }
   }
   updateSudalChalkFade(dt);
+
+  /* 파닥이 하늘 날기 */
+  if(padakFlyEvt){
+    if(padakFlyEvt.update(dt, t)) padakFlyEvt = null;
+  } else {
+    padakFlyTimer -= dt;
+    if(padakFlyTimer <= 0){
+      if(padak.state === 'play') padakFlyEvt = makePadakFlyEvt();
+      padakFlyTimer = 2700 + Math.random()*1800;
+    }
+  }
 
   /* 그네 흔들림 */
   swingState.amp += ((swingState.rider?0.55:0) - swingState.amp) * Math.min(1, dt*0.5);
