@@ -61,6 +61,8 @@
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 
 const errBox = document.getElementById('err');
 window.addEventListener('error', e=>{ errBox.style.display='block'; errBox.textContent='오류: '+e.message; });
@@ -304,14 +306,47 @@ function imageSprite(tex, aspect, height){
 const MATH_GUESTS = [
   {
     id:'alaco', name:'알라코', color:'#7fa684', file:'알라코.png', aspect:205/241,
-    lines:['분수도 차근차근 하면 쉬워요!','오늘의 문제: 7×8은?','수학은 생각하는 힘이에요!','공책 펴고 같이 풀어볼까요?']
+    model:'알라코.glb', modelHeight:11.5,
+    lines:['분수도 차근차근 하면 쉬워요!','오늘의 문제: 7×8은?','수학은 생각하는 힘이에요!','공책 펴고 같이 풀어볼까요?','폴짝폴짝, 구구단 외워볼까?']
   },
   {
     id:'cogico', name:'코기코', color:'#e28a4f', file:'코기코.png', aspect:220/240,
-    lines:['도형 문제는 그림부터 봐요!','구구단 리듬에 맞춰 춤춰요!','정답보다 풀이가 더 중요해요!','오늘도 수학 실력 쑥쑥!']
+    model:'코키코.glb', modelHeight:11.5,
+    lines:['도형 문제는 그림부터 봐요!','구구단 리듬에 맞춰 춤춰요!','정답보다 풀이가 더 중요해요!','오늘도 수학 실력 쑥쑥!','빙글빙글 돌면서 복습!']
   }
-].map(g=>({...g, tex:pngTexture(g.file)}));
+].map(g=>({...g, tex:pngTexture(g.file), modelProto:null, clips:null, modelLoaded:false}));
 const droneNyangTex = pngTexture('드론냥이.png');
+
+/* 코기코·알라코 3D 모델(GLB) 로딩 — 0KB 임시 이미지를 진짜 모델로 대체 */
+const gltfLoader = new GLTFLoader();
+function normalizeGuestModel(root, targetHeight){
+  const box = new THREE.Box3().setFromObject(root);
+  const size = new THREE.Vector3(); box.getSize(size);
+  const center = new THREE.Vector3(); box.getCenter(center);
+  const h = Math.max(size.y, 0.001);
+  const scale = targetHeight / h;
+  const wrap = new THREE.Group();
+  root.position.set(-center.x, -box.min.y, -center.z); /* 발을 원점에, 가로 중앙 정렬 */
+  wrap.add(root);
+  wrap.scale.setScalar(scale);
+  wrap.traverse(o=>{ if(o.isMesh){ o.castShadow = true; o.receiveShadow = true; } });
+  return wrap;
+}
+function loadGuestModel(def){
+  if(def.modelLoaded || !def.model) return;
+  def.modelLoaded = true;
+  gltfLoader.load(encodeURI(def.model), gltf=>{
+    def.modelProto = normalizeGuestModel(gltf.scene, def.modelHeight);
+    def.clips = gltf.animations || [];
+  }, undefined, err=>{
+    console.warn('GLB load failed', def.model, err);
+    def.modelLoaded = false;
+  });
+}
+/* 첫 화면 렌더 부담을 피해 잠시 후 미리 받아두기(이벤트 발생 시 즉시 등장) */
+const preloadGuestModels = ()=>MATH_GUESTS.forEach(loadGuestModel);
+if('requestIdleCallback' in window) requestIdleCallback(preloadGuestModels, {timeout:6000});
+else setTimeout(preloadGuestModels, 4000);
 
 function makeMathBoard(name, color){
   return spriteFromCanvas((ctx,w,h)=>{
@@ -335,8 +370,24 @@ function createMathGuest(def){
   const shadow = new THREE.Mesh(new THREE.CircleGeometry(4.2,36),
     new THREE.MeshBasicMaterial({color:0x1f3b24, transparent:true, opacity:0.2, depthWrite:false}));
   shadow.rotation.x = -Math.PI/2; shadow.position.y = 0.04; group.add(shadow);
-  const body = imageSprite(def.tex, def.aspect, 13.5);
-  body.position.set(-3.8, 6.9, 2.2); group.add(body);
+
+  /* 3D 모델 우선, 아직 로딩 전이면 스프라이트로 임시 표시 */
+  let body, model = null, mixer = null;
+  const guestPos = new THREE.Vector3(-3.8, 0, 2.2);
+  if(def.modelProto){
+    model = cloneSkinned(def.modelProto);
+    model.position.copy(guestPos);
+    model.rotation.y = Math.PI; /* 무대(보드) 쪽이 아니라 정면을 보도록 */
+    group.add(model);
+    body = model;
+    if(def.clips && def.clips.length){
+      mixer = new THREE.AnimationMixer(model);
+      mixer.clipAction(def.clips[0]).play();
+    }
+  } else {
+    body = imageSprite(def.tex, def.aspect, 13.5);
+    body.position.set(-3.8, 6.9, 2.2); group.add(body);
+  }
   const guestShadow = new THREE.Mesh(new THREE.CircleGeometry(2.2,32),
     new THREE.MeshBasicMaterial({color:0x1f3b24, transparent:true, opacity:0.18, depthWrite:false}));
   guestShadow.rotation.x = -Math.PI/2;
@@ -348,7 +399,8 @@ function createMathGuest(def){
   label.position.set(-3.8, 14.0, 2.2); label.scale.multiplyScalar(1.25); group.add(label);
   let bubble = null;
   return {
-    group, body, board,
+    group, body, board, model, basePos:guestPos.clone(),
+    update(dt){ if(mixer) mixer.update(dt); },
     say(text){
       if(bubble){ group.remove(bubble); bubble.material.map.dispose(); bubble.material.dispose(); }
       bubble = makeBubble(text);
@@ -1414,6 +1466,38 @@ class Kid {
       this.g.position.y = Math.abs(s)*0.08*w + Math.sin(t*2+this.offA)*0.02;
     }
   }
+  /* 한가할 때 가끔 깡총 뛰거나 몸을 흔드는 등 소소한 행동 (locomote 이후 호출) */
+  idleFlair(dt, t){
+    if(!this.flair) return;
+    const b = this.b;
+    if(this._flairUntil > t){
+      const u = 1 - (this._flairUntil - t)/this._flairDur;
+      if(this._flairKind === 'hop'){
+        this.g.position.y += Math.abs(Math.sin(u*Math.PI*3))*0.3;
+      } else if(this._flairKind === 'jump'){
+        this.g.position.y += Math.sin(u*Math.PI)*0.85;
+      } else if(this._flairKind === 'wiggle'){
+        this.g.rotation.z = Math.sin(u*Math.PI*5)*0.12*Math.sin(u*Math.PI);
+      } else if(this._flairKind === 'wave' && b.arms?.length>=2){
+        b.arms[1].rotation.z = -0.3 - Math.abs(Math.sin(u*Math.PI*3))*1.1;
+      }
+      return;
+    }
+    if(this._flairKind){
+      if(b.arms?.length>=2) b.arms[1].rotation.z = 0;
+      this.g.rotation.z = 0;
+      this._flairKind = null;
+    }
+    if(this._flairNext === undefined) this._flairNext = t + 4 + Math.random()*8;
+    if(t >= this._flairNext && this.walkAmt < 0.2){
+      this._flairKind = pick(this.flairKinds || ['hop','wiggle','jump']);
+      this._flairDur = 1.0 + Math.random()*0.7;
+      this._flairUntil = t + this._flairDur;
+      this._flairNext = t + 9 + Math.random()*12;
+      puff(Math.random()<0.5?heartTex:sparkTex, this.pos.clone().setY(b.headTop*0.85), 1, {size:0.45});
+      if(this.emotes && Math.random()<0.55 && t-lastChatAt>3){ this.say(pick(this.emotes)); lastChatAt=t; }
+    }
+  }
   update(dt, t){
     if(this.bubble){
       this.bubbleT -= dt;
@@ -1457,6 +1541,7 @@ class Kid {
     this.play(this, dt, t);
     if(this._skipLocomote) this._skipLocomote = false;
     else this.locomote(dt, t);
+    this.idleFlair(dt, t);
   }
 }
 
@@ -1509,10 +1594,40 @@ function applyMonkeyClimbPose(k, u, t){
 }
 function addKid(cfg){ const k = new Kid(cfg); kids.push(k); return k; }
 
+/* 술래잡기 추격: 상대에게 바짝 붙지 않고 일정 간격(gap)을 유지하며 쫓기 */
+const TAG_GAP = 3.0;
+const _gapDir = new THREE.Vector3(), _gapAim = new THREE.Vector3();
+function chaseKeepingGap(k, targetPos, dt, mul, gap=TAG_GAP){
+  _gapDir.copy(k.pos).sub(targetPos).setY(0);
+  if(_gapDir.lengthSq() < 1e-4) _gapDir.set(0,0,1);
+  _gapDir.normalize();
+  _gapAim.copy(targetPos).addScaledVector(_gapDir, gap);
+  k.moveToward(_gapAim, dt, mul);
+  return k.pos.distanceTo(targetPos);
+}
+/* 두 캐릭터가 일정 거리(minD)보다 가까워지면 서로 밀어내 절대 겹치지 않게 함(뽀뽀 방지) */
+const TAG_MIN_DIST = 2.4;
+function enforceMinGap(a, b, minD=TAG_MIN_DIST){
+  _gapDir.copy(a.pos).sub(b.pos).setY(0);
+  let d = _gapDir.length();
+  if(d < 1e-4){ _gapDir.set(1,0,0); d = 1e-4; }
+  if(d < minD){
+    _gapDir.multiplyScalar(1/d);
+    const push = (minD - d) * 0.5;
+    a.pos.addScaledVector(_gapDir, push);
+    b.pos.addScaledVector(_gapDir, -push);
+    a.pos.x = THREE.MathUtils.clamp(a.pos.x, WORLD.minX, WORLD.maxX);
+    a.pos.z = THREE.MathUtils.clamp(a.pos.z, WORLD.minZ, WORLD.maxZ);
+    b.pos.x = THREE.MathUtils.clamp(b.pos.x, WORLD.minX, WORLD.maxX);
+    b.pos.z = THREE.MathUtils.clamp(b.pos.z, WORLD.minZ, WORLD.maxZ);
+  }
+}
+
 /* ---------------- 캐릭터 11명 ---------------- */
 const doldol = addKid({
   name:'돌돌이', owner:'아윤', color:'#f06fa0',
-  lines:['안녕! 난 돌돌이야!','같이 놀자~','멍멍! 친구 좋아!','오늘도 신나요!','산책 가고 싶다~'],
+  lines:['안녕! 난 돌돌이야!','같이 놀자~','멍멍! 친구 좋아!','오늘도 신나요!','산책 가고 싶다~','꼬리가 살랑살랑~','누구랑 놀까?'],
+  flair:true, flairKinds:['hop','wave','wiggle'], emotes:['멍멍!','반가워!','꼬리 살랑살랑~','같이 놀까?'],
   build: buildDoldol(), home:new THREE.Vector3(8,0,8), speed:2.8, moveStyle:'walk', scale:1,
   play:(k,dt)=>{
     if(!k._friend || k._visitT <= 0){
@@ -1530,7 +1645,7 @@ const doldol = addKid({
 });
 addKid({
   name:'리노', owner:'주연', color:'#444444',
-  lines:['난 리노야, 내 상자야!','털실 어디 갔지?','야옹~ 궁금해요','별이 반짝반짝!','상자 안은 포근해'],
+  lines:['난 리노야, 내 상자야!','털실 어디 갔지?','야옹~ 궁금해요','별이 반짝반짝!','상자 안은 포근해','그루밍 중이야~','낮잠 자고 싶다'],
   build: buildRino(), home:new THREE.Vector3(33.2,0,18.4), speed:2.4, moveStyle:'walk', scale:0.95,
   play:(k,dt,t)=>{
     const cyc = (k.playT % 18);
@@ -1547,56 +1662,36 @@ addKid({
 });
 addKid({
   name:'뭉키', owner:'선율', color:'#c98a4b',
-  lines:['나무타기는 내가 최고!','번개처럼 빨라!','바나나 먹고 싶다~','우끼끼!','숲 산책 갈래?'],
+  lines:['나무타기는 내가 최고!','번개처럼 빨라!','바나나 먹고 싶다~','우끼끼!','숲 산책 갈래?','저 위까지 올라갈 거야!','대롱대롱 매달리기!'],
   build: buildMonkey(), home:new THREE.Vector3(37,0,-11), speed:3, moveStyle:'walk', scale:1.02,
   play:(k,dt,t)=>{
-    const T = 24, u = (k.playT % T)/T;
     const tx = monkeyTree.position.x, tz = monkeyTree.position.z;
-    const climbH = monkeyTree.userData.climbHeight ?? 6.5;
-    const anchor = monkeyTree.userData.swingAnchor ?? new THREE.Vector3(tx-5.5, climbH, tz+1.2);
-    k.idle();
-    if(u < 0.28){
-      const c = u/0.28;
-      k.g.position.set(tx-1.1 + Math.sin(c*Math.PI*12)*0.08, c*climbH, tz+0.55 + Math.sin(c*Math.PI*6)*0.06);
-      k.g.rotation.y = 0;
-      applyMonkeyClimbPose(k, c, t);
-      k._skipLocomote = true;
-    } else if(u < 0.62){
-      const swing = Math.sin(t*2.3);
-      restoreLimbBasePositions(k);
-      k.g.position.set(anchor.x, anchor.y-1.75 + Math.abs(swing)*0.18, anchor.z + swing*1.55);
-      k.g.rotation.y = 0;
-      k.g.rotation.x = -swing*0.22;
-      k.g.rotation.z = 0;
-      k.b.arms[0].rotation.x = -2.6; k.b.arms[1].rotation.x = -2.6;
-      k.b.arms[0].rotation.z = -0.72; k.b.arms[1].rotation.z = 0.72;
-      k.b.legs[0].rotation.x = 0.7 + swing*0.2; k.b.legs[1].rotation.x = 0.7 - swing*0.2;
-      if(Math.random()<dt*0.5) puff(sparkTex, k.pos.clone().setY(k.pos.y+1.4), 1, {size:0.5});
-      k._skipLocomote = true;
-    } else if(u < 0.78){
-      const c = (u-0.62)/0.16;
-      restoreLimbBasePositions(k);
-      k.g.position.set(
-        THREE.MathUtils.lerp(anchor.x, tx-1.1, c),
-        THREE.MathUtils.lerp(anchor.y-1.75, 0, c),
-        THREE.MathUtils.lerp(anchor.z, tz+0.6, c)
-      );
-      k.g.rotation.x = 0;
-      k.g.rotation.z = 0;
-      k.g.rotation.y = 0;
-      k.b.arms[0].rotation.x = -1.4; k.b.arms[1].rotation.x = -1.4;
-      k.b.arms[0].rotation.z = 0; k.b.arms[1].rotation.z = 0;
-      k._skipLocomote = true;
+    const cyc = k.playT % 32;
+    k.g.rotation.x = 0;
+    k.g.rotation.z = 0;
+    if(cyc < 6.2){
+      const base = new THREE.Vector3(tx-1.35, 0, tz+0.9);
+      const d = k.moveToward(base, dt, 0.55);
+      if(d < 0.7){
+        k.idle();
+        k.heading = 0;
+        k.g.rotation.y = 0;
+        k.b.headG.rotation.x = -0.18 + Math.sin(t*1.8)*0.04;
+        k.b.arms[0].rotation.x = -0.7 + Math.sin(t*2.5)*0.14;
+        k.b.arms[1].rotation.x = -0.7 - Math.sin(t*2.5)*0.14;
+        k._skipLocomote = true;
+        if(Math.random()<dt*0.08) k.say('조금 있다가 올라갈게!');
+      }
     } else {
-      const a = (u-0.78)/0.22 * Math.PI*2;
-      const target = new THREE.Vector3(tx+Math.cos(a)*5.5, 0, tz+Math.sin(a)*5.5);
-      k.moveToward(target, dt, 1);
+      k.b.headG.rotation.x = 0;
+      wanderPlay(new THREE.Vector3(tx+0.8,0,tz-0.8), 5.4, 2.2, 5.5)(k,dt);
     }
   }
 });
 addKid({
   name:'밤이', owner:'철호', color:'#7a5c3a',
-  lines:['멍멍! 공놀이 하자!','피구는 내가 왕!','고기가 최고야~','채소는 싫어!','한 골 넣어볼까?'],
+  lines:['멍멍! 공놀이 하자!','피구는 내가 왕!','고기가 최고야~','채소는 싫어!','한 골 넣어볼까?','공 가져와!','왈왈, 뛰어놀자!'],
+  flair:true, flairKinds:['hop','jump','wiggle'], emotes:['왈왈!','공 어디 갔지?','뛰어놀자!','골인!'],
   build: buildBami(), home:new THREE.Vector3(2,0,-4), speed:3, moveStyle:'walk',
   play:(k,dt)=>{
     const d = k.moveToward(ball.position, dt, 0.7);
@@ -1609,7 +1704,7 @@ addKid({
 });
 addKid({
   name:'사랑이', owner:'소미', color:'#f06fa0',
-  lines:['사랑해 💗','콩콩 뛰는 게 좋아!','구름 보러 갈래?','두근두근!','트램펄린 최고야~'],
+  lines:['사랑해 💗','콩콩 뛰는 게 좋아!','구름 보러 갈래?','두근두근!','트램펄린 최고야~','더 높이 점프!','하트 받아라~'],
   build: buildSarang(), home:new THREE.Vector3(-41.5,0,15), speed:2.2, moveStyle:'hop', scale:0.92,
   play:(k,dt,t)=>{
     const cyc = k.playT % 36;
@@ -1643,7 +1738,7 @@ const skateCurve = new THREE.CatmullRomCurve3(skatePts, true, 'catmullrom', 0.5)
 }
 addKid({
   name:'수달이', owner:'세훈', color:'#a9744f',
-  lines:['보드 타는 거야!','씽씽~ 신난다!','한 바퀴 더!','균형 잡기 선수!','바람이 시원해~'],
+  lines:['보드 타는 거야!','씽씽~ 신난다!','한 바퀴 더!','균형 잡기 선수!','바람이 시원해~','이 트릭 봐봐!','잘생긴 세훈이~'],
   build: buildSudal(), home:new THREE.Vector3(44,0,-26), speed:3.5, moveStyle:'skate',
   play:(k,dt,t)=>{
     k._u = (k._u ?? 0) + dt*0.011;
@@ -1659,7 +1754,8 @@ addKid({
 });
 addKid({
   name:'코돌이', owner:'소윤', color:'#9c8fb5',
-  lines:['딸기 줘요~','냠냠 맛있다!','뿌우~','꽃도 예뻐요','한 입만 더!'],
+  lines:['딸기 줘요~','냠냠 맛있다!','뿌우~','꽃도 예뻐요','한 입만 더!','나 잡아봐~','송미야, 여기야!'],
+  flair:true, flairKinds:['wiggle'], emotes:['뿌우~','맛있다!','꽃 향기 좋아~'],
   build: buildKodol(), home:new THREE.Vector3(-39.3,0,-7.7), speed:1.8, moveStyle:'walk', scale:0.88,
   play:(k,dt,t)=>{
     const cyc = k.playT % 36;
@@ -1682,8 +1778,8 @@ addKid({
       const chaseKodol = cyc < 22;
       songmi._tagWithKodol = {partner:k, role:chaseKodol?'flee':'chase', until:t+0.25};
       if(chaseKodol){
-        const d = k.moveToward(songmi.pos, dt, 1.15);
-        if(d < 1.6 && (k._tagSayT ?? 0) <= t){
+        const d = chaseKeepingGap(k, songmi.pos, dt, 1.15);
+        if(d < TAG_GAP + 0.5 && (k._tagSayT ?? 0) <= t){
           k.say('이송미, 잡았다~!');
           puff(sparkTex, k.pos.clone().setY(1.7), 2, {size:0.45});
           k._tagSayT = t + 5.5;
@@ -1710,7 +1806,8 @@ addKid({
 });
 const padak = addKid({
   name:'파닥이', owner:'나무', color:'#d9a514',
-  lines:['씩씩하게 안녕!','파닥파닥!','별친구야 가자!','반가워!','꽃향기 좋다~'],
+  lines:['씩씩하게 안녕!','파닥파닥!','별친구야 가자!','반가워!','꽃향기 좋다~','하늘을 날고 싶어!','삐약삐약~'],
+  flair:true, flairKinds:['hop','jump'], emotes:['파닥파닥!','훨훨~','삐약!','별친구야!'],
   build: buildPadak(), home:new THREE.Vector3(19,0,31), speed:2, moveStyle:'walk', scale:0.9,
   play:(k,dt,t)=>{
     k.b.arms[0].rotation.z = 0.8+Math.sin(t*3.5)*0.4;
@@ -1729,7 +1826,7 @@ padak.b.buddy.position.set(20.4,0,31);
 scene.add(padak.b.buddy);
 addKid({
   name:'한국사랑', owner:'서율', color:'#4a7d3a',
-  lines:['안녕하세요, 한국사랑입니다!','충성!','대한민국 만세!','태극기가 펄럭펄럭~','오늘도 씩씩하게!'],
+  lines:['안녕하세요, 한국사랑입니다!','충성!','대한민국 만세!','태극기가 펄럭펄럭~','오늘도 씩씩하게!','하나 둘, 하나 둘!','바른 자세 경례!'],
   build: buildKorea(), home:new THREE.Vector3(-18,0,-30), speed:2.4, moveStyle:'march', scale:1.06,
   play:(k,dt,t)=>{
     const cyc = k.playT % 30;
@@ -1752,7 +1849,7 @@ addKid({
 });
 addKid({
   name:'흰우유', owner:'승훈', color:'#2f8f4e',
-  lines:['공장에서 탈출했어!','달리자~','여행 가는 중!','우유는 힘이 세다!','오늘은 몇 바퀴 뛸까?'],
+  lines:['공장에서 탈출했어!','달리자~','여행 가는 중!','우유는 힘이 세다!','오늘은 몇 바퀴 뛸까?','전속력으로 출발!','뼈가 튼튼해져요~'],
   build: buildMilk(), home:new THREE.Vector3(30.5,0,-4), speed:3.8, moveStyle:'walk',
   play:(k,dt)=>{
     k._a = (k._a ?? 0) + dt * 0.16;
@@ -1763,7 +1860,8 @@ addKid({
 });
 songmi = addKid({
   name:'이송미', owner:'토끼친구', color:'#f0922e',
-  lines:['안녕! 나는 이송미야!','뭔가 찾았어! 🔍','무지개 색이 좋아~','탐정 출동!','궁금한 건 못 참아!'],
+  lines:['안녕! 나는 이송미야!','뭔가 찾았어! 🔍','무지개 색이 좋아~','탐정 출동!','궁금한 건 못 참아!','코돌이 발자국 발견!','잡으러 간다~'],
+  flair:true, flairKinds:['hop','wiggle','jump'], emotes:['오~ 신기해!','단서 발견!','폴짝!','이게 뭐지?'],
   build: buildSongmi(), home:new THREE.Vector3(10,0,26), speed:2.4, moveStyle:'walk', scale:1,
   play:(k,dt,t)=>{
     const tag = k._tagWithKodol;
@@ -1783,8 +1881,8 @@ songmi = addKid({
           k._tagSayT = t + 6.5;
         }
       } else {
-        const d = k.moveToward(tag.partner.pos, dt, 1);
-        if(d < 1.5 && (k._tagSayT ?? 0) <= t){
+        const d = chaseKeepingGap(k, tag.partner.pos, dt, 1);
+        if(d < TAG_GAP + 0.5 && (k._tagSayT ?? 0) <= t){
           k.say('이번엔 내가 잡았어!');
           puff(heartTex, k.pos.clone().setY(1.8), 2, {size:0.45});
           k._tagSayT = t + 6;
@@ -1816,6 +1914,7 @@ songmi = addKid({
 kids.forEach(k=>toonify(k.g));
 toonify(padak.b.buddy);
 toonify(ball);
+const kodolKid = kids.find(k=>k.name==='코돌이');
 
 /* ---------------- 칩 UI ---------------- */
 const chipsEl = document.getElementById('chips');
@@ -1978,7 +2077,9 @@ function resetEventPose(k){
   k.gotoTarget = null;
   k.celebT = 0;
   k.startleT = 0;
+  k._tagWithKodol = null;
   k._skipLocomote = false;
+  if(k.b.headG) k.b.headG.rotation.set(0,0,0);
   if(k.b.arms?.length){
     k.b.arms.forEach(a=>{
       a.rotation.x = 0; a.rotation.z = 0;
@@ -2345,6 +2446,173 @@ function makeMonkeyClimbEvt(){
   }};
 }
 
+function makeKodolSongmiTagEvt(){
+  const kodol = kids.find(k=>k.name==='코돌이' && k.state==='play');
+  const song = songmi && songmi.state === 'play' ? songmi : null;
+  if(!kodol || !song) return null;
+  const kodolStart = new THREE.Vector3(-11.5,0,16);
+  const songStart = new THREE.Vector3(-15,0,14.8);
+  const tagPath = [
+    new THREE.Vector3(-11,0,16),
+    new THREE.Vector3(-2,0,25),
+    new THREE.Vector3(10,0,22),
+    new THREE.Vector3(12,0,12),
+    new THREE.Vector3(1,0,8),
+    new THREE.Vector3(-12,0,10)
+  ];
+  const tagCurve = new THREE.CatmullRomCurve3(tagPath, true, 'catmullrom', 0.45);
+  [kodol,song].forEach(k=>{
+    k.state='event';
+    k.gotoTarget=null;
+    k.celebT=0;
+    k.startleT=0;
+    k.walkAmt=0;
+    k._tagWithKodol=null;
+  });
+  let phase='gather', pt=0, cleaned=false;
+  let kodolTease=false, songIntroReply=false, songTrailLine=false, caught=false, swapped=false, cheered=false;
+  const tv = new THREE.Vector3();
+  const behind = new THREE.Vector3();
+  const turnTo = (k,target,dt,rate=5)=>{
+    tv.copy(target).sub(k.pos); tv.y = 0;
+    if(tv.lengthSq() < 0.0001) return;
+    const want = Math.atan2(tv.x, tv.z);
+    let diff = want-k.heading;
+    while(diff>Math.PI) diff-=Math.PI*2;
+    while(diff<-Math.PI) diff+=Math.PI*2;
+    k.heading += diff*Math.min(1, dt*rate);
+    k.g.rotation.y = k.heading;
+  };
+  const pathPoint = (u, out)=> out.copy(tagCurve.getPointAt((u%1+1)%1));
+  const runPose = (k,t,lean=0.08)=>{
+    k.b.headG.rotation.x = lean + Math.sin(t*4.2)*0.04;
+    if(k.b.arms?.length >= 2){
+      k.b.arms[0].rotation.z = -0.18 + Math.sin(t*5)*0.1;
+      k.b.arms[1].rotation.z = 0.18 - Math.sin(t*5)*0.1;
+    }
+  };
+  const finish = ()=>{
+    if(cleaned) return;
+    cleaned = true;
+    kodol._tagWithKodol = null;
+    song._tagWithKodol = null;
+    release([kodol,song]);
+  };
+  return {kind:'kodolSongmiTag', cancel:finish, update(dt,t){
+    pt += dt;
+    if(phase === 'gather'){
+      const kd = moveKidFreelyToward(kodol, kodolStart, dt, 1.6);
+      const sd = moveKidFreelyToward(song, songStart, dt, 1.45);
+      kodol.locomote(dt,t);
+      song.locomote(dt,t);
+      if(kd < 0.7 && sd < 0.7){
+        phase='intro';
+        pt=0;
+      }
+    } else if(phase === 'intro'){
+      kodol.idle(); song.idle();
+      turnTo(kodol, song.pos, dt);
+      turnTo(song, kodol.pos, dt);
+      kodol.locomote(dt,t);
+      song.locomote(dt,t);
+      if(!kodolTease && pt > 0.35){
+        kodolTease = true;
+        kodol.say('나 잡아봐!');
+        if(kodol.b.arms?.length >= 2){
+          kodol.b.arms[0].rotation.x = -1.05;
+          kodol.b.arms[1].rotation.x = -1.05;
+        }
+      }
+      if(!songIntroReply && pt > 1.45){
+        songIntroReply = true;
+        song.say('코돌이, 기다려~!');
+        song.b.headG.rotation.x = 0.18;
+      }
+      if(pt > 3.1){
+        phase='chase';
+        pt=0;
+      }
+    } else if(phase === 'chase'){
+      const u = Math.min(0.78, pt/21*0.78);
+      pathPoint(u, tv);
+      moveKidFreelyToward(kodol, tv, dt, 1.5);
+      behind.copy(kodol.pos).add(new THREE.Vector3(-Math.sin(kodol.heading)*TAG_GAP, 0, -Math.cos(kodol.heading)*TAG_GAP));
+      const d = moveKidFreelyToward(song, behind, dt, 1.25);
+      kodol.locomote(dt,t);
+      song.locomote(dt,t);
+      runPose(kodol,t,0.04);
+      runPose(song,t,0.16);
+      if(!songTrailLine && pt > 4){
+        songTrailLine = true;
+        song.say('발자국 따라간다~');
+      }
+      if(!caught && pt > 7.8){
+        caught = true;
+        kodol.say('송미야, 여기야!');
+      }
+      if(Math.random()<dt*0.6) puff(sparkTex, kodol.pos.clone().setY(0.4), 1, {size:0.34});
+      if((pt > 9 && d < 1.15) || pt > 20){
+        phase='catch';
+        pt=0;
+        caught=false;
+      }
+    } else if(phase === 'catch'){
+      kodol.idle(); song.idle();
+      turnTo(kodol, song.pos, dt);
+      turnTo(song, kodol.pos, dt);
+      kodol.locomote(dt,t);
+      song.locomote(dt,t);
+      if(!caught){
+        caught = true;
+        song.say('잡았다!');
+        kodol.say('우와, 빠르다!');
+        puff(heartTex, song.pos.clone().setY(1.8), 3, {size:0.5});
+      }
+      if(pt > 2.6){
+        phase='swap';
+        pt=0;
+      }
+    } else if(phase === 'swap'){
+      if(!swapped){
+        swapped = true;
+        song.say('이번엔 내가 도망갈게!');
+        kodol.say('이번엔 내가 술래!');
+      }
+      const u = 0.78 - Math.min(0.42, pt/12*0.42);
+      pathPoint(u, tv);
+      moveKidFreelyToward(song, tv, dt, 1.2);
+      behind.copy(song.pos).add(new THREE.Vector3(-Math.sin(song.heading)*TAG_GAP, 0, -Math.cos(song.heading)*TAG_GAP));
+      moveKidFreelyToward(kodol, behind, dt, 1.35);
+      kodol.locomote(dt,t);
+      song.locomote(dt,t);
+      runPose(kodol,t,0.1);
+      runPose(song,t,0.08);
+      if(Math.random()<dt*0.45) puff(sparkTex, song.pos.clone().setY(0.4), 1, {size:0.34});
+      if(pt > 12){
+        phase='end';
+        pt=0;
+      }
+    } else {
+      kodol.idle(); song.idle();
+      turnTo(kodol, song.pos, dt);
+      turnTo(song, kodol.pos, dt);
+      kodol.locomote(dt,t);
+      song.locomote(dt,t);
+      if(!cheered){
+        cheered = true;
+        kodol.say('또 하자!');
+        song.say('단서보다 재미있어!');
+      }
+      if(pt > 2.2){
+        finish();
+        return true;
+      }
+    }
+    enforceMinGap(kodol, song); /* 어떤 단계에서도 둘이 겹치지 않게 */
+    return false;
+  }};
+}
+
 function makeSudalChalkEvt(){
   const k = kids.find(k=>k.name==='수달이' && k.state==='play');
   if(!k) return null;
@@ -2673,12 +2941,27 @@ function makeMathGuestEvt(guestId=null){
   };
   return {kind:'mathGuest', guest:def.name, cancel:finish, update(dt,t){
     pt += dt;
+    guest.update?.(dt); /* GLB 애니메이션 클립 재생 */
     const intro = THREE.MathUtils.smoothstep(Math.min(pt/8,1), 0, 1);
     const outro = pt > 84 ? 1-THREE.MathUtils.smoothstep((pt-84)/6, 0, 1) : 1;
     guest.group.position.x = THREE.MathUtils.lerp(-68, center.x, intro);
     guest.group.position.z = center.z + Math.sin(t*0.55)*0.25;
     guest.group.position.y = Math.sin(t*1.7)*0.12;
     guest.group.scale.setScalar(Math.max(0.05, intro*outro));
+
+    /* 코기코/알라코 직접 만든 이벤트 움직임: 등장 후 폴짝폴짝 + 빙글빙글 + 좌우 흔들 */
+    if(guest.model){
+      const m = guest.model, danceT = Math.max(0, pt-8);
+      const hop = danceT > 0 ? Math.abs(Math.sin(t*2.6)) : 0;
+      m.position.y = guest.basePos.y + hop*1.4;
+      m.position.x = guest.basePos.x + Math.sin(t*1.3)*0.5;
+      m.rotation.y = Math.PI + Math.sin(danceT*0.9)*0.6 + danceT*0.25;
+      m.rotation.z = Math.sin(t*2.6)*0.06;
+      const sq = 1 + Math.cos(t*5.2)*0.05*(danceT>0?1:0);
+      m.scale.set(1/sq, sq, 1/sq);
+      if(danceT > 0 && Math.random() < dt*2.4)
+        puff(Math.random()<0.5?noteTex:sparkTex, guest.group.localToWorld(m.position.clone().setY(m.position.y+8)), 1, {size:0.7, life:1.2});
+    }
 
     if(pt >= nextSay && pt < 82){
       guest.say(pt < 4 ? `${def.name} 등장! 수학 공부 시작!` : pick(def.lines));
@@ -2828,17 +3111,32 @@ function tryStartScheduledDroneEvent(){
 const EVENT_MAKERS = {
   race:makeRace, dance:makeDance, chat:makeChat, swing:makeSwingEvt,
   slide:makeSlideEvt, monkey:makeMonkeyClimbEvt, math:makeMathGuestEvt,
-  catBall:makeCatBallEvt, sudalChalk:makeSudalChalkEvt
+  kodolSongmiTag:makeKodolSongmiTagEvt, catBall:makeCatBallEvt, sudalChalk:makeSudalChalkEvt
 };
+const RANDOM_EVENT_KEYS = ['race','dance','chat','swing','slide','kodolSongmiTag','race','dance'];
+const AUTO_MONKEY_MIN_SECONDS = 540;
+const AUTO_MONKEY_JITTER_SECONDS = 120;
+function nextAutoMonkeyDelay(){ return AUTO_MONKEY_MIN_SECONDS + Math.random()*AUTO_MONKEY_JITTER_SECONDS; }
+let autoMonkeyTimer = nextAutoMonkeyDelay();
+function resetAutoMonkeyTimer(){ autoMonkeyTimer = nextAutoMonkeyDelay(); }
+function tryStartScheduledMonkeyClimb(){
+  if(autoMonkeyTimer > 0) return null;
+  const ev = tryStartEvent('monkey');
+  if(!ev) autoMonkeyTimer = 60;
+  return ev;
+}
 let evt = null;
 let skyEvt = null;
 let evtTimer = 14 + Math.random()*8;
 let padakFlyEvt = null;
 let padakFlyTimer = 2700 + Math.random()*1800; /* 약 45~75분 간격 */
 function tryStartEvent(name){
-  const maker = EVENT_MAKERS[name ?? pick(['race','dance','chat','swing','slide','monkey','race','dance'])];
+  const key = name ?? pick(RANDOM_EVENT_KEYS);
+  const maker = EVENT_MAKERS[key];
   if(!maker) return null;
-  return limitEventDuration(maker());
+  const ev = limitEventDuration(maker());
+  if(ev && key === 'monkey') resetAutoMonkeyTimer();
+  return ev;
 }
 function prepareManualEventStart(){
   swingState.rider = null;
@@ -2884,6 +3182,7 @@ window.__ow = {
   forceSudalChalk:()=>replaceMainEvent(()=>limitEventDuration(makeSudalChalkEvt())),
   forceDroneNyang:()=>replaceSkyEvent(()=>limitEventDuration(makeDroneNyangEvt(), MAX_EVENT_SECONDS, false)),
   forcePadakFly:()=>{ if(padakFlyEvt) return false; if(padak.state!=='play') return false; padakFlyEvt = makePadakFlyEvt(); return !!padakFlyEvt; },
+  getAutoMonkeySeconds:()=>Math.max(0, Math.round(autoMonkeyTimer)),
   getEvt:()=>evt,
   getSkyEvt:()=>skyEvt,
   getSudalChalkState:()=>sudalChalkState(),
@@ -2891,12 +3190,13 @@ window.__ow = {
     math:getDailyPlan('mathGuest', 9, 12, MATH_GUESTS.map(g=>g.id)),
     drone:getDailyPlan('droneNyang', 8, 12),
     cat:getDailyPlan('catBall', 8, 12),
-    sudalChalkNextAt:getSudalChalkNextAt()
+    sudalChalkNextAt:getSudalChalkNextAt(),
+    autoMonkeySeconds:Math.max(0, Math.round(autoMonkeyTimer))
   })
 };
 [
   ['달리기','race'], ['강강술래','dance'], ['수다','chat'], ['그네','swing'],
-  ['미끄럼틀','slide'], ['뭉키 나무','monkey'], ['알라코 수학','math:alaco'],
+  ['미끄럼틀','slide'], ['코돌이 술래','kodolSongmiTag'], ['뭉키 나무','monkey'], ['알라코 수학','math:alaco'],
   ['코기코 수학','math:cogico'], ['수학 랜덤','math'], ['고양이 공놀이','catBall'],
   ['수달이 낙서','sudalChalk']
 ].forEach(([label, name])=>{
@@ -2935,6 +3235,12 @@ function animate(){
 
   for(const k of kids) k.update(dt, t);
 
+  /* 평상시 코돌이↔이송미 술래잡기도 너무 붙지 않게 */
+  if(songmi && kodolKid && songmi.state==='play' && kodolKid.state==='play'
+     && songmi._tagWithKodol && songmi._tagWithKodol.until > t){
+    enforceMinGap(kodolKid, songmi);
+  }
+
   /* 오전 하늘 이벤트 */
   if(skyEvt){
     if(skyEvt.update(dt, t)) skyEvt = null;
@@ -2946,7 +3252,8 @@ function animate(){
   if(evt){
     if(evt.update(dt, t)){ evt = null; evtTimer = 34 + Math.random()*26; }
   } else {
-    const scheduled = tryStartScheduledSudalChalk() || tryStartScheduledCatBallEvent() || tryStartScheduledMathEvent();
+    autoMonkeyTimer -= dt;
+    const scheduled = tryStartScheduledSudalChalk() || tryStartScheduledCatBallEvent() || tryStartScheduledMathEvent() || tryStartScheduledMonkeyClimb();
     if(scheduled){
       evt = scheduled;
       evtTimer = 34 + Math.random()*26;
