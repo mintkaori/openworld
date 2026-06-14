@@ -52,9 +52,9 @@
   .memo-tabs button{height:38px;border:2px solid rgba(255,255,255,.35);border-radius:7px;
     background:rgba(255,255,255,.1);color:#f7f1d0;font-size:16px;font-weight:900;cursor:pointer;}
   .memo-tabs button.active{background:#f7f1d0;color:#23553f;border-color:#f7d36a;}
-  #memoText{min-height:380px;max-height:calc(100vh - 315px);resize:vertical;padding:16px;
+  #memoText{min-height:480px;max-height:calc(100vh - 250px);resize:vertical;padding:16px;
     border:2px dashed rgba(255,255,255,.38);border-radius:8px;background:rgba(8,41,29,.52);
-    color:#fffbe8;font-family:'Malgun Gothic','Segoe UI',sans-serif;font-size:30px;line-height:1.45;
+    color:#fffbe8;font-family:'Malgun Gothic','Segoe UI',sans-serif;font-size:50px;line-height:1.4;
     font-weight:700;outline:none;box-shadow:inset 0 0 22px rgba(0,0,0,.16);}
   #memoText::placeholder{color:rgba(255,251,232,.5);}
   .memo-status{font-size:12px;color:rgba(255,251,232,.78);text-align:right;}
@@ -79,8 +79,8 @@
   <div class="memo-top">
     <div class="memo-title">3-2 메모장</div>
     <input id="memoDate" type="date" aria-label="메모 날짜">
-    <input id="memoFontRange" type="range" min="22" max="54" step="1" aria-label="글자 크기">
-    <input id="memoFontSize" type="number" min="22" max="54" step="1" aria-label="글자 크기 숫자">
+    <input id="memoFontRange" type="range" min="22" max="100" step="1" aria-label="글자 크기">
+    <input id="memoFontSize" type="number" min="22" max="100" step="1" aria-label="글자 크기 숫자">
     <button id="memoClose" type="button" title="닫기">×</button>
   </div>
   <div class="memo-tabs">
@@ -165,7 +165,7 @@ function readMemo(date=memoCurrentDate){
 function writeMemo(date=memoCurrentDate){
   const data = readMemo(date);
   data[memoActiveTab] = memoText.value;
-  data.fontSize = Number(memoFontSizeInput.value) || 30;
+  data.fontSize = Number(memoFontSizeInput.value) || 50;
   data.updatedAt = new Date().toISOString();
   try{
     localStorage.setItem(memoStorageKey(date), JSON.stringify(data));
@@ -181,8 +181,8 @@ function queueMemoSave(){
   memoSaveTimer = setTimeout(writeMemo, 180);
 }
 function setMemoFontSize(size, save=true){
-  const next = THREE.MathUtils?.clamp ? THREE.MathUtils.clamp(Number(size)||30, 22, 54) :
-    Math.min(54, Math.max(22, Number(size)||30));
+  const next = THREE.MathUtils?.clamp ? THREE.MathUtils.clamp(Number(size)||50, 22, 100) :
+    Math.min(100, Math.max(22, Number(size)||50));
   memoText.style.fontSize = `${next}px`;
   memoFontRange.value = String(next);
   memoFontSizeInput.value = String(next);
@@ -194,7 +194,7 @@ function loadMemoTab(tab=memoActiveTab){
   memoTabNotice.classList.toggle('active', tab === 'notice');
   const data = readMemo();
   memoText.value = data[tab] || '';
-  setMemoFontSize(data.fontSize || Number(localStorage.getItem('openworld.memo.fontSize')) || 30, false);
+  setMemoFontSize(data.fontSize || Number(localStorage.getItem('openworld.memo.fontSize')) || 50, false);
   memoStatus.textContent = data.updatedAt ? '로컬 저장됨' : '새 메모';
 }
 memoDateInput.value = memoCurrentDate;
@@ -213,7 +213,7 @@ memoTabNotice.onclick = ()=>{ writeMemo(); loadMemoTab('notice'); };
 memoText.oninput = queueMemoSave;
 memoFontRange.oninput = ()=>setMemoFontSize(memoFontRange.value);
 memoFontSizeInput.onchange = ()=>setMemoFontSize(memoFontSizeInput.value);
-setMemoFontSize(Number(localStorage.getItem('openworld.memo.fontSize')) || 30, false);
+setMemoFontSize(Number(localStorage.getItem('openworld.memo.fontSize')) || 50, false);
 
 /* ---------------- renderer / scene ---------------- */
 const renderer = new THREE.WebGLRenderer({antialias:true});
