@@ -257,8 +257,8 @@ renderer.domElement.addEventListener('pointerdown', guardCameraInput, {capture:t
 renderer.domElement.addEventListener('wheel', guardCameraInput, {capture:true, passive:false});
 renderer.domElement.addEventListener('contextmenu', guardCameraInput, {capture:true});
 
-scene.add(new THREE.HemisphereLight(0xd6ecff, 0x8fb068, 1.0));
-const sun = new THREE.DirectionalLight(0xfff3d0, 1.5);
+scene.add(new THREE.HemisphereLight(0xeaf4ff, 0xa6c585, 1.25));
+const sun = new THREE.DirectionalLight(0xfff3d0, 1.25);
 sun.position.set(45, 70, 35);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
@@ -277,7 +277,7 @@ addEventListener('resize', ()=>{
 const gradMap = (()=>{
   const cv = document.createElement('canvas'); cv.width=4; cv.height=1;
   const x = cv.getContext('2d');
-  ['#828282','#c0c0c0','#ffffff','#ffffff'].forEach((c,i)=>{ x.fillStyle=c; x.fillRect(i,0,1,1); });
+  ['#bdbdbd','#dedede','#ffffff','#ffffff'].forEach((c,i)=>{ x.fillStyle=c; x.fillRect(i,0,1,1); });
   const t = new THREE.CanvasTexture(cv);
   t.minFilter = THREE.NearestFilter; t.magFilter = THREE.NearestFilter; t.generateMipmaps = false;
   return t;
@@ -480,7 +480,7 @@ function makeMathBoard(name, color){
     ctx.fillText('★', 95, 152); ctx.fillText('★', 545, 152);
   }, 640,320, 3.0);
 }
-const GUEST_FACE_YAW = Math.PI; /* 모델 정면이 카메라(+z)를 향하도록 */
+const GUEST_FACE_YAW = 0; /* 모델 정면(얼굴)이 카메라(+z)를 향하도록 — 절대 등을 보이지 않음 */
 function createMathGuest(def){
   const group = new THREE.Group();
   const shadow = new THREE.Mesh(new THREE.CircleGeometry(4.2,36),
@@ -1327,7 +1327,10 @@ function buildSarang(){ // 사랑이: 말랑 하트
   return {g, head:bodyMesh, headG, body:bodyMesh, arms, legs, headTop:1.85, headR:0.78, bodyY:0.95, bodyH:1, bodyR:0.78};
 }
 function buildSudal(){ // 수달이: 보드 타는 수달
-  const b = biped({skin:0xa9744f, headR:0.58, bodyC:0xa9744f, legH:0.3});
+  const b = biped({skin:0xa9744f, headR:0.58, bodyC:0xa9744f, legH:0.3, armH:0.26, armR:0.12});
+  /* 팔을 몸에 붙고 살짝 앞으로 모은 기본 자세 (늘어진 막대처럼 보이지 않게) */
+  b.arms.forEach((a,i)=>{ a.position.x *= 0.82; a.position.y += 0.12; a.rotation.x = -0.35; a.rotation.z = (i===0?1:-1)*0.18;
+    a.userData.basePosition = a.position.clone(); /* 이벤트 후 복원도 새 위치 기준 */ });
   b.headG.add(sph(0.3,0xe9cfa8, 0,-0.14,0.4, 1.15,0.85,0.7));
   b.headG.add(sph(0.07,0x2b2118, 0,-0.02,0.66));
   for(const s of [-1,1]){
@@ -1403,9 +1406,13 @@ function buildPadak(){ // 파닥이: 노란 오리
 function buildKorea(){ // 한국사랑: 태극 얼굴 + 군모
   const b = biped({skin:0x4a7d3a, headR:0.66, headC:0xffffff, bodyC:0x4a7d3a,
     legC:0x4a7d3a, armC:0x4a7d3a, legH:0.44});
-  const face = mesh(new THREE.PlaneGeometry(1.08,1.08),
-    new THREE.MeshBasicMaterial({map:koreaFaceTex, transparent:true, depthWrite:false}), 0,0,0.675, false);
+  /* 머리 곡면을 따라가는 구면 데칼로 태극기를 자연스럽게 입힘(가면처럼 떠 보이지 않게) */
+  const faceGeo = new THREE.SphereGeometry(b.headR*1.012, 48, 36,
+    Math.PI/2 - 0.92, 1.84, Math.PI/2 - 0.78, 1.56);
+  const face = new THREE.Mesh(faceGeo,
+    new THREE.MeshBasicMaterial({map:koreaFaceTex, transparent:true, depthWrite:false}));
   face.renderOrder = 4;
+  face.castShadow = false; face.receiveShadow = false;
   b.headG.add(face);
   b.headG.add(sph(0.62,0x2e2e2e, 0,0.46,-0.04, 1.08,0.42,0.98));
   const brim = torus(0.6,0.055,0x2e2e2e, 0,0.37,-0.02); brim.rotation.x=Math.PI/2;
@@ -2049,6 +2056,8 @@ songmi = addKid({
 kids.forEach(k=>toonify(k.g));
 toonify(padak.b.buddy);
 toonify(ball);
+/* 캐릭터가 자기 그림자를 얼굴/몸에 받지 않게(가끔 얼굴에 그림자 지던 문제) — 바닥엔 계속 드리움 */
+kids.forEach(k=>k.g.traverse(o=>{ if(o.isMesh && !o.userData.isOutline) o.receiveShadow=false; }));
 const kodolKid = kids.find(k=>k.name==='코돌이');
 
 /* ---------------- 칩 UI ---------------- */
@@ -3177,7 +3186,7 @@ function makeMathGuestEvt(guestId=null){
       if(guest.model){
         const bs=guest.model.userData.baseScale||1;
         guest.model.position.copy(guest.basePos);
-        guest.model.rotation.set(0, guest.faceYaw + u*Math.PI*4, 0);
+        guest.model.rotation.set(0, guest.faceYaw, 0); /* 낙하 중에도 항상 정면 */
         guest.model.scale.setScalar(bs);
       }
     } else {
@@ -3194,32 +3203,30 @@ function makeMathGuestEvt(guestId=null){
       guest.group.position.y = Math.sin(t*1.7)*0.12;
       guest.group.scale.setScalar(Math.max(0.05, outro));
 
-      /* 코기코/알라코 이벤트 움직임: 착지 정면 -> 제자리 -> 좌우 점프 -> 360도 -> 정면 복귀 */
+      /* 코기코/알라코 이벤트 움직임: 항상 정면을 보며 제자리 -> 좌우 -> 빠른 제자리(겅중겅중) 반복 */
       if(guest.model){
         const m = guest.model, bs = m.userData.baseScale||1, danceT = Math.max(0, pt-dropDur);
-        const phase = danceT % 12.5;
-        let x = guest.basePos.x, y = guest.basePos.y, yaw = guest.faceYaw, lean = 0, hopPower = 0;
-        if(phase < 2.6){
-          hopPower = Math.abs(Math.sin(phase*Math.PI*1.15))*0.35;
+        const phase = danceT % 11;
+        let x = guest.basePos.x, y = guest.basePos.y, lean = 0, hopPower = 0;
+        if(phase < 3){
+          /* 제자리 뛰기 */
+          hopPower = Math.abs(Math.sin(phase*Math.PI*1.2))*0.6;
           y += hopPower;
-        } else if(phase < 6.2){
-          const u = (phase-2.6)/3.6;
-          x += Math.sin(u*Math.PI*2)*1.18;
-          hopPower = Math.abs(Math.sin(u*Math.PI*4))*0.82;
+        } else if(phase < 7){
+          /* 좌우로 뛰기 */
+          const u = (phase-3)/4;
+          x += Math.sin(u*Math.PI*4)*1.25;
+          hopPower = Math.abs(Math.sin(u*Math.PI*8))*0.7;
           y += hopPower;
-          lean = Math.sin(u*Math.PI*2)*0.08;
-        } else if(phase < 8.8){
-          const u = (phase-6.2)/2.6;
-          yaw += THREE.MathUtils.smoothstep(u,0,1)*Math.PI*2;
-          hopPower = Math.sin(u*Math.PI)*0.38;
-          y += hopPower;
+          lean = Math.cos(u*Math.PI*4)*0.07; /* 진행 방향으로 살짝 기울임(정면 유지) */
         } else {
-          const u = (phase-8.8)/3.7;
-          hopPower = Math.abs(Math.sin(u*Math.PI*5))*0.55;
+          /* 신나게 겅중겅중 */
+          const u = (phase-7)/4;
+          hopPower = Math.abs(Math.sin(u*Math.PI*6))*0.85;
           y += hopPower;
         }
         m.position.set(x, y, guest.basePos.z);
-        m.rotation.set(0, yaw, lean);
+        m.rotation.set(0, guest.faceYaw, lean); /* yaw 고정 = 절대 등 안 보임 */
         const sq = 1 + Math.min(0.08, hopPower*0.08);
         m.scale.set(bs/sq, bs*sq, bs/sq); /* 정규화 배율 위에 스쿼시 */
         if(danceT > 0 && Math.random() < dt*2.4){
