@@ -33,6 +33,31 @@
     border:2px solid #ffd9a0;border-radius:999px;background:rgba(255,255,255,.85);padding:0 10px;
     color:#76502b;font-weight:800;font-size:13px;box-shadow:0 2px 8px rgba(80,60,20,.14);user-select:none;}
   #labelToggle input{width:15px;height:15px;accent-color:#f06fa0;}
+  #memoToggle{position:fixed;z-index:12;top:54px;right:12px;width:34px;height:34px;border-radius:50%;
+    border:2px solid #d9c58c;background:rgba(39,83,62,.92);color:#fff7d6;font-size:20px;font-weight:900;
+    cursor:pointer;box-shadow:0 3px 10px rgba(30,40,20,.25);}
+  #memoPanel{position:fixed;z-index:1001;top:96px;right:18px;width:min(520px,calc(100vw - 36px));
+    max-height:calc(100vh - 122px);display:flex;flex-direction:column;gap:10px;padding:14px;
+    border:8px solid #9a6b3d;border-radius:10px;background:#23553f;color:#f7f1d0;
+    box-shadow:inset 0 0 0 2px rgba(255,255,255,.12),0 18px 40px rgba(20,20,10,.35);}
+  #memoPanel[hidden]{display:none;}
+  .memo-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .memo-title{font-weight:900;font-size:18px;margin-right:auto;text-shadow:0 1px 0 rgba(0,0,0,.35);}
+  #memoDate,#memoFontSize{height:32px;border:1px solid rgba(255,255,255,.35);border-radius:6px;
+    background:#f7f1d0;color:#214b38;font-weight:800;padding:0 8px;}
+  #memoFontRange{width:110px;accent-color:#f7d36a;}
+  #memoClose{width:32px;height:32px;border-radius:50%;border:1px solid rgba(255,255,255,.35);
+    background:rgba(255,255,255,.14);color:#fff7d6;font-size:20px;font-weight:900;cursor:pointer;}
+  .memo-tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  .memo-tabs button{height:38px;border:2px solid rgba(255,255,255,.35);border-radius:7px;
+    background:rgba(255,255,255,.1);color:#f7f1d0;font-size:16px;font-weight:900;cursor:pointer;}
+  .memo-tabs button.active{background:#f7f1d0;color:#23553f;border-color:#f7d36a;}
+  #memoText{min-height:380px;max-height:calc(100vh - 315px);resize:vertical;padding:16px;
+    border:2px dashed rgba(255,255,255,.38);border-radius:8px;background:rgba(8,41,29,.52);
+    color:#fffbe8;font-family:'Malgun Gothic','Segoe UI',sans-serif;font-size:30px;line-height:1.45;
+    font-weight:700;outline:none;box-shadow:inset 0 0 22px rgba(0,0,0,.16);}
+  #memoText::placeholder{color:rgba(255,251,232,.5);}
+  .memo-status{font-size:12px;color:rgba(255,251,232,.78);text-align:right;}
 </style>
 </head>
 <body>
@@ -49,6 +74,22 @@
 <label id="labelToggle" title="캐릭터 이름표 표시">
   <input id="labelToggleInput" type="checkbox"> 이름표
 </label>
+<button id="memoToggle" title="메모장">!</button>
+<section id="memoPanel" hidden>
+  <div class="memo-top">
+    <div class="memo-title">3-2 메모장</div>
+    <input id="memoDate" type="date" aria-label="메모 날짜">
+    <input id="memoFontRange" type="range" min="22" max="54" step="1" aria-label="글자 크기">
+    <input id="memoFontSize" type="number" min="22" max="54" step="1" aria-label="글자 크기 숫자">
+    <button id="memoClose" type="button" title="닫기">×</button>
+  </div>
+  <div class="memo-tabs">
+    <button id="memoTabMorning" type="button" class="active">아침활동</button>
+    <button id="memoTabNotice" type="button">알림장</button>
+  </div>
+  <textarea id="memoText" spellcheck="false" placeholder="오늘 날짜의 내용을 적어두세요."></textarea>
+  <div id="memoStatus" class="memo-status">로컬 저장 준비</div>
+</section>
 <div id="chips"></div>
 <div id="err"></div>
 
@@ -69,10 +110,23 @@ window.addEventListener('error', e=>{ errBox.style.display='block'; errBox.textC
 const titlePanel = document.getElementById('title');
 const eventButtonsEl = document.getElementById('eventButtons');
 const labelToggleInput = document.getElementById('labelToggleInput');
+const memoToggle = document.getElementById('memoToggle');
+const memoPanel = document.getElementById('memoPanel');
+const memoClose = document.getElementById('memoClose');
+const memoDateInput = document.getElementById('memoDate');
+const memoFontRange = document.getElementById('memoFontRange');
+const memoFontSizeInput = document.getElementById('memoFontSize');
+const memoTabMorning = document.getElementById('memoTabMorning');
+const memoTabNotice = document.getElementById('memoTabNotice');
+const memoText = document.getElementById('memoText');
+const memoStatus = document.getElementById('memoStatus');
 let characterLabelsVisible = false;
 let eventButtonsUnlocked = false;
 let helpTapCount = 0;
 let lastHelpTapAt = 0;
+let memoActiveTab = 'morning';
+let memoCurrentDate = memoDateKey();
+let memoSaveTimer = null;
 function setTitlePanelVisible(visible){
   titlePanel.style.display = visible ? 'block' : 'none';
 }
@@ -95,6 +149,71 @@ document.getElementById('toggleHelp').onclick = ()=>{
 };
 labelToggleInput.checked = characterLabelsVisible;
 labelToggleInput.onchange = ()=>setCharacterLabelsVisible(labelToggleInput.checked);
+function memoDateKey(now=new Date()){
+  const p = n => String(n).padStart(2,'0');
+  return `${now.getFullYear()}-${p(now.getMonth()+1)}-${p(now.getDate())}`;
+}
+function memoStorageKey(date){ return `openworld.memo.${date}`; }
+function readMemo(date=memoCurrentDate){
+  try{
+    return JSON.parse(localStorage.getItem(memoStorageKey(date)) || 'null') ||
+      {morning:'', notice:'', updatedAt:null};
+  }catch{
+    return {morning:'', notice:'', updatedAt:null};
+  }
+}
+function writeMemo(date=memoCurrentDate){
+  const data = readMemo(date);
+  data[memoActiveTab] = memoText.value;
+  data.fontSize = Number(memoFontSizeInput.value) || 30;
+  data.updatedAt = new Date().toISOString();
+  try{
+    localStorage.setItem(memoStorageKey(date), JSON.stringify(data));
+    localStorage.setItem('openworld.memo.fontSize', String(data.fontSize));
+    memoStatus.textContent = '저장됨';
+  }catch{
+    memoStatus.textContent = '저장 실패';
+  }
+}
+function queueMemoSave(){
+  memoStatus.textContent = '저장 중...';
+  clearTimeout(memoSaveTimer);
+  memoSaveTimer = setTimeout(writeMemo, 180);
+}
+function setMemoFontSize(size, save=true){
+  const next = THREE.MathUtils?.clamp ? THREE.MathUtils.clamp(Number(size)||30, 22, 54) :
+    Math.min(54, Math.max(22, Number(size)||30));
+  memoText.style.fontSize = `${next}px`;
+  memoFontRange.value = String(next);
+  memoFontSizeInput.value = String(next);
+  if(save) queueMemoSave();
+}
+function loadMemoTab(tab=memoActiveTab){
+  memoActiveTab = tab;
+  memoTabMorning.classList.toggle('active', tab === 'morning');
+  memoTabNotice.classList.toggle('active', tab === 'notice');
+  const data = readMemo();
+  memoText.value = data[tab] || '';
+  setMemoFontSize(data.fontSize || Number(localStorage.getItem('openworld.memo.fontSize')) || 30, false);
+  memoStatus.textContent = data.updatedAt ? '로컬 저장됨' : '새 메모';
+}
+memoDateInput.value = memoCurrentDate;
+memoToggle.onclick = ()=>{
+  memoPanel.hidden = !memoPanel.hidden;
+  if(!memoPanel.hidden){ loadMemoTab(memoActiveTab); memoText.focus(); }
+};
+memoClose.onclick = ()=>{ writeMemo(); memoPanel.hidden = true; };
+memoDateInput.onchange = ()=>{
+  writeMemo();
+  memoCurrentDate = memoDateInput.value || memoDateKey();
+  loadMemoTab(memoActiveTab);
+};
+memoTabMorning.onclick = ()=>{ writeMemo(); loadMemoTab('morning'); };
+memoTabNotice.onclick = ()=>{ writeMemo(); loadMemoTab('notice'); };
+memoText.oninput = queueMemoSave;
+memoFontRange.oninput = ()=>setMemoFontSize(memoFontRange.value);
+memoFontSizeInput.onchange = ()=>setMemoFontSize(memoFontSizeInput.value);
+setMemoFontSize(Number(localStorage.getItem('openworld.memo.fontSize')) || 30, false);
 
 /* ---------------- renderer / scene ---------------- */
 const renderer = new THREE.WebGLRenderer({antialias:true});
@@ -340,10 +459,9 @@ function loadGuestModel(def){
     def.modelLoaded = false;
   });
 }
-/* 첫 화면 렌더 부담을 피해 잠시 후 미리 받아두기(이벤트 발생 시 즉시 등장) */
+/* 수동 수학 이벤트에서 바로 GLB가 보이도록 시작 직후 미리 받아둔다. */
 const preloadGuestModels = ()=>MATH_GUESTS.forEach(loadGuestModel);
-if('requestIdleCallback' in window) requestIdleCallback(preloadGuestModels, {timeout:6000});
-else setTimeout(preloadGuestModels, 4000);
+preloadGuestModels();
 
 function makeMathBoard(name, color){
   return spriteFromCanvas((ctx,w,h)=>{
@@ -372,7 +490,9 @@ function createMathGuest(def){
   /* 3D 모델 우선, 아직 로딩 전이면 스프라이트로 임시 표시 */
   let body, model = null, mixer = null;
   const guestPos = new THREE.Vector3(-3.8, 0, 2.2);
-  if(def.modelProto){
+  const attachModelIfReady = ()=>{
+    if(model || !def.modelProto) return false;
+    if(body && body.isSprite) group.remove(body);
     model = cloneSkinned(def.modelProto);
     model.userData.baseScale = model.scale.x; /* 정규화 배율 보존(스쿼시는 여기 곱함) */
     model.position.copy(guestPos);
@@ -383,7 +503,10 @@ function createMathGuest(def){
       mixer = new THREE.AnimationMixer(model);
       mixer.clipAction(def.clips[0]).play();
     }
-  } else {
+    return true;
+  };
+  if(!attachModelIfReady()){
+    loadGuestModel(def);
     body = imageSprite(def.tex, def.aspect, 13.5);
     body.position.set(-3.8, 6.9, 2.2); group.add(body);
   }
@@ -398,8 +521,10 @@ function createMathGuest(def){
   label.position.set(-3.8, 14.0, 2.2); label.scale.multiplyScalar(1.25); group.add(label);
   let bubble = null;
   return {
-    group, body, board, model, guestShadow, faceYaw:GUEST_FACE_YAW, basePos:guestPos.clone(),
-    update(dt){ if(mixer) mixer.update(dt); },
+    group, board, guestShadow, faceYaw:GUEST_FACE_YAW, basePos:guestPos.clone(),
+    get body(){ return body; },
+    get model(){ return model; },
+    update(dt){ attachModelIfReady(); if(mixer) mixer.update(dt); },
     say(text){
       if(bubble){ group.remove(bubble); bubble.material.map.dispose(); bubble.material.dispose(); }
       bubble = makeBubble(text);
@@ -789,29 +914,60 @@ const hop = mesh(new THREE.PlaneGeometry(3,6),
 hop.rotation.x = -Math.PI/2; scene.add(hop);
 
 /* ---------------- 태극기 ---------------- */
+function drawTaegeukMark(c,cx,cy,R){
+  c.save();
+  c.translate(cx,cy);
+  c.fillStyle='#cd2e3a';
+  c.beginPath(); c.arc(0,0,R,Math.PI,0,false); c.fill();
+  c.fillStyle='#0047a0';
+  c.beginPath(); c.arc(0,0,R,0,Math.PI,false); c.fill();
+  c.fillStyle='#cd2e3a';
+  c.beginPath(); c.arc(-R/2,0,R/2,0,Math.PI*2); c.fill();
+  c.fillStyle='#0047a0';
+  c.beginPath(); c.arc(R/2,0,R/2,0,Math.PI*2); c.fill();
+  c.restore();
+}
+function drawTrigram(c,bx,by,unit,rot,broken){
+  c.save();
+  c.translate(bx,by);
+  c.rotate(rot);
+  c.fillStyle='#000';
+  for(let i=-1;i<=1;i++){
+    const y = i*unit*0.32-unit*0.08;
+    if(broken.includes(i)){
+      c.fillRect(-unit*0.72,y,unit*0.62,unit*0.16);
+      c.fillRect(unit*0.1,y,unit*0.62,unit*0.16);
+    } else {
+      c.fillRect(-unit*0.72,y,unit*1.44,unit*0.16);
+    }
+  }
+  c.restore();
+}
 function taegeukCanvas(c,w,h){
   c.fillStyle='#ffffff'; c.fillRect(0,0,w,h);
   const cx=w/2, cy=h/2, R=h*0.25;
-  c.fillStyle='#cd2e3a'; c.beginPath(); c.arc(cx,cy,R,Math.PI,0); c.fill();
-  c.fillStyle='#0047a0'; c.beginPath(); c.arc(cx,cy,R,0,Math.PI); c.fill();
-  c.fillStyle='#cd2e3a'; c.beginPath(); c.arc(cx-R/2,cy,R/2,0,Math.PI*2); c.fill();
-  c.fillStyle='#0047a0'; c.beginPath(); c.arc(cx+R/2,cy,R/2,0,Math.PI*2); c.fill();
-  c.fillStyle='#000';
-  const bar=(bx,by,rot,gaps)=>{ c.save(); c.translate(bx,by); c.rotate(rot);
-    for(let i=-1;i<=1;i++){ if(gaps.includes(i)){
-        c.fillRect(-R*0.55,i*R*0.22-R*0.07,R*0.5,R*0.14);
-        c.fillRect(R*0.05,i*R*0.22-R*0.07,R*0.5,R*0.14);
-      } else c.fillRect(-R*0.55,i*R*0.22-R*0.07,R*1.1,R*0.14); }
-    c.restore(); };
-  bar(cx-R*1.7, cy-R*0.95, -Math.PI/5.2, []);
-  bar(cx+R*1.7, cy-R*0.95,  Math.PI/5.2, [-1,1]);
-  bar(cx-R*1.7, cy+R*0.95,  Math.PI/5.2, [0]);
-  bar(cx+R*1.7, cy+R*0.95, -Math.PI/5.2, [-1,0,1]);
+  drawTaegeukMark(c,cx,cy,R);
+  drawTrigram(c,cx-R*1.7, cy-R*0.95, R*0.95, -Math.PI/5.2, []);
+  drawTrigram(c,cx+R*1.7, cy-R*0.95, R*0.95,  Math.PI/5.2, [-1,1]);
+  drawTrigram(c,cx-R*1.7, cy+R*0.95, R*0.95,  Math.PI/5.2, [0]);
+  drawTrigram(c,cx+R*1.7, cy+R*0.95, R*0.95, -Math.PI/5.2, [-1,0,1]);
+}
+function koreaFaceCanvas(c,w,h){
+  c.clearRect(0,0,w,h);
+  const cx=w/2, cy=h/2, R=w*0.18;
+  c.fillStyle='rgba(255,255,255,.96)';
+  c.beginPath(); c.arc(cx,cy,w*0.47,0,Math.PI*2); c.fill();
+  drawTaegeukMark(c,cx,cy,R);
+  drawTrigram(c,cx-R*1.75, cy-R*1.35, R*0.72, -Math.PI/5.2, []);
+  drawTrigram(c,cx+R*1.75, cy-R*1.35, R*0.72,  Math.PI/5.2, [-1,1]);
+  drawTrigram(c,cx-R*1.75, cy+R*1.35, R*0.72,  Math.PI/5.2, [0]);
+  drawTrigram(c,cx+R*1.75, cy+R*1.35, R*0.72, -Math.PI/5.2, [-1,0,1]);
 }
 const flagGroup = new THREE.Group();
 flagGroup.add(cyl(0.12,0.16,15, 0xcccccc, 0,7.5,0,10));
 flagGroup.add(sph(0.3,0xffd84d,0,15.1,0));
 const flagTex = canvasTexture(360,240,taegeukCanvas);
+const koreaFaceTex = canvasTexture(512,512,koreaFaceCanvas);
 const flag = mesh(new THREE.PlaneGeometry(4.4,2.9),
   new THREE.MeshBasicMaterial({map:flagTex, side:THREE.DoubleSide}), 2.35,13.2,0, false);
 flagGroup.add(flag);
@@ -1247,32 +1403,12 @@ function buildPadak(){ // 파닥이: 노란 오리
 function buildKorea(){ // 한국사랑: 태극 얼굴 + 군모
   const b = biped({skin:0x4a7d3a, headR:0.66, headC:0xffffff, bodyC:0x4a7d3a,
     legC:0x4a7d3a, armC:0x4a7d3a, legH:0.44});
-  const f = new THREE.Group();
-  const halfC = (col, start)=> new THREE.Mesh(new THREE.CircleGeometry(0.34,24,start,Math.PI),
-    new THREE.MeshBasicMaterial({color:col}));
-  f.add(halfC(0xcd2e3a, 0)); f.add(halfC(0x0047a0, Math.PI));
-  const sc = (col,x)=>{ const m=new THREE.Mesh(new THREE.CircleGeometry(0.17,20),
-    new THREE.MeshBasicMaterial({color:col})); m.position.set(x,0,0.004); return m; };
-  f.add(sc(0xcd2e3a,-0.17)); f.add(sc(0x0047a0,0.17));
-  const eye=(x)=>{ const w=new THREE.Mesh(new THREE.CircleGeometry(0.085,16),
-      new THREE.MeshBasicMaterial({color:0xffffff})); w.position.set(x,0.07,0.008);
-    w.scale.set(1.15,1.25,1);
-    const p=new THREE.Mesh(new THREE.CircleGeometry(0.066,16),
-      new THREE.MeshBasicMaterial({color:0x222222})); p.position.set(x,0.065,0.012);
-    const hi=new THREE.Mesh(new THREE.CircleGeometry(0.022,10),
-      new THREE.MeshBasicMaterial({color:0xffffff})); hi.position.set(x+0.025,0.095,0.016);
-    f.add(w,p,hi); };
-  eye(-0.15); eye(0.15);
-  const smile = torus(0.1,0.02,0x222222, 0,-0.1,0.01, Math.PI);
-  smile.rotation.z = Math.PI; f.add(smile);
-  f.position.set(0,0,0.58); b.headG.add(f);
-  for(const s of [-1,1]) for(let i=0;i<3;i++){
-    const bar = box(0.2,0.045,0.03, 0x222222, 0,0,0);
-    bar.position.set(s*0.5, 0.1-i*0.1, 0.42); bar.rotation.y = s*0.65;
-    b.headG.add(bar);
-  }
-  b.headG.add(sph(0.62,0x2e2e2e, 0,0.26,0, 1.12,0.7,1.12));
-  const brim = torus(0.62,0.07,0x2e2e2e, 0,0.18,0); brim.rotation.x=Math.PI/2;
+  const face = mesh(new THREE.PlaneGeometry(1.08,1.08),
+    new THREE.MeshBasicMaterial({map:koreaFaceTex, transparent:true, depthWrite:false}), 0,0,0.675, false);
+  face.renderOrder = 4;
+  b.headG.add(face);
+  b.headG.add(sph(0.62,0x2e2e2e, 0,0.46,-0.04, 1.08,0.42,0.98));
+  const brim = torus(0.6,0.055,0x2e2e2e, 0,0.37,-0.02); brim.rotation.x=Math.PI/2;
   b.headG.add(brim);
   for(const s of [-1,1]){
     b.headG.add(cyl(0.07,0.07,0.3, 0x5d8f3f, s*0.26,0.72,0,8));
@@ -3038,12 +3174,18 @@ function makeMathGuestEvt(guestId=null){
         guest.guestShadow.scale.setScalar(THREE.MathUtils.lerp(0.25, 1, e));
         guest.guestShadow.material.opacity = THREE.MathUtils.lerp(0.04, 0.2, e);
       }
-      if(guest.model){ const bs=guest.model.userData.baseScale||1; guest.model.position.copy(guest.basePos); guest.model.rotation.set(0, guest.faceYaw, 0); guest.model.scale.setScalar(bs); }
+      if(guest.model){
+        const bs=guest.model.userData.baseScale||1;
+        guest.model.position.copy(guest.basePos);
+        guest.model.rotation.set(0, guest.faceYaw + u*Math.PI*4, 0);
+        guest.model.scale.setScalar(bs);
+      }
     } else {
       if(!landed){
         landed = true;
         guest.group.position.set(center.x, 0, center.z);
         guest.group.scale.setScalar(1);
+        if(guest.model) guest.model.rotation.set(0, guest.faceYaw, 0);
         guest.say(`${def.name} 등장! 수학 시작!`);
         nextSay = pt + 11 + Math.random()*4;
         puff(sparkTex, new THREE.Vector3(center.x+guest.basePos.x, 0.5, center.z+guest.basePos.z), 10, {size:0.9, life:1.1});
@@ -3052,18 +3194,38 @@ function makeMathGuestEvt(guestId=null){
       guest.group.position.y = Math.sin(t*1.7)*0.12;
       guest.group.scale.setScalar(Math.max(0.05, outro));
 
-      /* 코기코/알라코 이벤트 움직임: 착지 후 폴짝폴짝 + 빙글빙글 + 좌우 흔들 */
+      /* 코기코/알라코 이벤트 움직임: 착지 정면 -> 제자리 -> 좌우 점프 -> 360도 -> 정면 복귀 */
       if(guest.model){
-        const m = guest.model, bs = m.userData.baseScale||1, danceT = Math.max(0, pt-8);
-        const hop = danceT > 0 ? Math.abs(Math.sin(t*2.6)) : 0;
-        m.position.y = guest.basePos.y + hop*1.4;
-        m.position.x = guest.basePos.x + (danceT>0?Math.sin(t*1.3)*0.5:0);
-        m.rotation.y = guest.faceYaw + (danceT>0 ? Math.sin(danceT*0.9)*0.6 + danceT*0.25 : 0);
-        m.rotation.z = danceT>0 ? Math.sin(t*2.6)*0.06 : 0;
-        const sq = 1 + Math.cos(t*5.2)*0.05*(danceT>0?1:0);
+        const m = guest.model, bs = m.userData.baseScale||1, danceT = Math.max(0, pt-dropDur);
+        const phase = danceT % 12.5;
+        let x = guest.basePos.x, y = guest.basePos.y, yaw = guest.faceYaw, lean = 0, hopPower = 0;
+        if(phase < 2.6){
+          hopPower = Math.abs(Math.sin(phase*Math.PI*1.15))*0.35;
+          y += hopPower;
+        } else if(phase < 6.2){
+          const u = (phase-2.6)/3.6;
+          x += Math.sin(u*Math.PI*2)*1.18;
+          hopPower = Math.abs(Math.sin(u*Math.PI*4))*0.82;
+          y += hopPower;
+          lean = Math.sin(u*Math.PI*2)*0.08;
+        } else if(phase < 8.8){
+          const u = (phase-6.2)/2.6;
+          yaw += THREE.MathUtils.smoothstep(u,0,1)*Math.PI*2;
+          hopPower = Math.sin(u*Math.PI)*0.38;
+          y += hopPower;
+        } else {
+          const u = (phase-8.8)/3.7;
+          hopPower = Math.abs(Math.sin(u*Math.PI*5))*0.55;
+          y += hopPower;
+        }
+        m.position.set(x, y, guest.basePos.z);
+        m.rotation.set(0, yaw, lean);
+        const sq = 1 + Math.min(0.08, hopPower*0.08);
         m.scale.set(bs/sq, bs*sq, bs/sq); /* 정규화 배율 위에 스쿼시 */
-        if(danceT > 0 && Math.random() < dt*2.4)
-          puff(Math.random()<0.5?noteTex:sparkTex, guest.group.localToWorld(m.position.clone().setY(m.position.y+10)), 1, {size:0.7, life:1.2});
+        if(danceT > 0 && Math.random() < dt*2.4){
+          const sparkPos = guest.group.localToWorld(new THREE.Vector3(m.position.x, m.position.y+4.2, m.position.z));
+          puff(Math.random()<0.5?noteTex:sparkTex, sparkPos, 1, {size:0.7, life:1.2});
+        }
       }
     }
 
@@ -3289,6 +3451,13 @@ window.__ow = {
   forceDroneNyang:()=>replaceSkyEvent(()=>limitEventDuration(makeDroneNyangEvt(), MAX_EVENT_SECONDS, false)),
   forcePadakFly:()=>{ if(padakFlyEvt) return false; if(padak.state!=='play') return false; padakFlyEvt = makePadakFlyEvt(); return !!padakFlyEvt; },
   getAutoMonkeySeconds:()=>Math.max(0, Math.round(autoMonkeyTimer)),
+  getMemoState:()=>({
+    open:!memoPanel.hidden,
+    date:memoCurrentDate,
+    tab:memoActiveTab,
+    fontSize:Number(memoFontSizeInput.value),
+    textLength:memoText.value.length
+  }),
   getEvt:()=>evt,
   getSkyEvt:()=>skyEvt,
   getSudalChalkState:()=>sudalChalkState(),
