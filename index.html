@@ -306,12 +306,12 @@ function imageSprite(tex, aspect, height){
 const MATH_GUESTS = [
   {
     id:'alaco', name:'알라코', color:'#7fa684', file:'알라코.png', aspect:205/241,
-    model:'알라코.glb', modelHeight:11.5,
+    model:'알라코.glb', modelScale:5,
     lines:['분수도 차근차근 하면 쉬워요!','오늘의 문제: 7×8은?','수학은 생각하는 힘이에요!','공책 펴고 같이 풀어볼까요?','폴짝폴짝, 구구단 외워볼까?']
   },
   {
     id:'cogico', name:'코기코', color:'#e28a4f', file:'코기코.png', aspect:220/240,
-    model:'코키코.glb', modelHeight:11.5,
+    model:'코키코.glb', modelScale:5,
     lines:['도형 문제는 그림부터 봐요!','구구단 리듬에 맞춰 춤춰요!','정답보다 풀이가 더 중요해요!','오늘도 수학 실력 쑥쑥!','빙글빙글 돌면서 복습!']
   }
 ].map(g=>({...g, tex:pngTexture(g.file), modelProto:null, clips:null, modelLoaded:false}));
@@ -319,16 +319,13 @@ const droneNyangTex = pngTexture('드론냥이.png');
 
 /* 코기코·알라코 3D 모델(GLB) 로딩 — 0KB 임시 이미지를 진짜 모델로 대체 */
 const gltfLoader = new GLTFLoader();
-function normalizeGuestModel(root, targetHeight){
+function normalizeGuestModel(root, scaleFactor){
   const box = new THREE.Box3().setFromObject(root);
-  const size = new THREE.Vector3(); box.getSize(size);
   const center = new THREE.Vector3(); box.getCenter(center);
-  const h = Math.max(size.y, 0.001);
-  const scale = targetHeight / h;
   const wrap = new THREE.Group();
   root.position.set(-center.x, -box.min.y, -center.z); /* 발을 원점에, 가로 중앙 정렬 */
   wrap.add(root);
-  wrap.scale.setScalar(scale);
+  wrap.scale.setScalar(scaleFactor);
   wrap.traverse(o=>{ if(o.isMesh){ o.castShadow = true; o.receiveShadow = true; } });
   return wrap;
 }
@@ -336,7 +333,7 @@ function loadGuestModel(def){
   if(def.modelLoaded || !def.model) return;
   def.modelLoaded = true;
   gltfLoader.load(encodeURI(def.model), gltf=>{
-    def.modelProto = normalizeGuestModel(gltf.scene, def.modelHeight);
+    def.modelProto = normalizeGuestModel(gltf.scene, def.modelScale);
     def.clips = gltf.animations || [];
   }, undefined, err=>{
     console.warn('GLB load failed', def.model, err);
@@ -365,6 +362,7 @@ function makeMathBoard(name, color){
     ctx.fillText('★', 95, 152); ctx.fillText('★', 545, 152);
   }, 640,320, 3.0);
 }
+const GUEST_FACE_YAW = Math.PI; /* 모델 정면이 카메라(+z)를 향하도록 */
 function createMathGuest(def){
   const group = new THREE.Group();
   const shadow = new THREE.Mesh(new THREE.CircleGeometry(4.2,36),
@@ -376,8 +374,9 @@ function createMathGuest(def){
   const guestPos = new THREE.Vector3(-3.8, 0, 2.2);
   if(def.modelProto){
     model = cloneSkinned(def.modelProto);
+    model.userData.baseScale = model.scale.x; /* 정규화 배율 보존(스쿼시는 여기 곱함) */
     model.position.copy(guestPos);
-    model.rotation.y = Math.PI; /* 무대(보드) 쪽이 아니라 정면을 보도록 */
+    model.rotation.y = GUEST_FACE_YAW; /* 등장 시 얼굴 정면(카메라 쪽) */
     group.add(model);
     body = model;
     if(def.clips && def.clips.length){
@@ -388,8 +387,8 @@ function createMathGuest(def){
     body = imageSprite(def.tex, def.aspect, 13.5);
     body.position.set(-3.8, 6.9, 2.2); group.add(body);
   }
-  const guestShadow = new THREE.Mesh(new THREE.CircleGeometry(2.2,32),
-    new THREE.MeshBasicMaterial({color:0x1f3b24, transparent:true, opacity:0.18, depthWrite:false}));
+  const guestShadow = new THREE.Mesh(new THREE.CircleGeometry(4.4,36),
+    new THREE.MeshBasicMaterial({color:0x1f3b24, transparent:true, opacity:0.2, depthWrite:false}));
   guestShadow.rotation.x = -Math.PI/2;
   guestShadow.position.set(-3.8,0.06,2.2);
   group.add(guestShadow);
@@ -399,7 +398,7 @@ function createMathGuest(def){
   label.position.set(-3.8, 14.0, 2.2); label.scale.multiplyScalar(1.25); group.add(label);
   let bubble = null;
   return {
-    group, body, board, model, basePos:guestPos.clone(),
+    group, body, board, model, guestShadow, faceYaw:GUEST_FACE_YAW, basePos:guestPos.clone(),
     update(dt){ if(mixer) mixer.update(dt); },
     say(text){
       if(bubble){ group.remove(bubble); bubble.material.map.dispose(); bubble.material.dispose(); }
@@ -737,25 +736,25 @@ const graffiti = mesh(new THREE.PlaneGeometry(18,4.6),
   new THREE.MeshBasicMaterial({map:graffitiTex, transparent:true, side:THREE.DoubleSide}), 8.2,5.25,-5.18, false);
 graffiti.rotation.y = Math.PI;
 school.add(graffiti);
-const sudalChalkTex = canvasTexture(768,192,(c,w,h)=>{
+const sudalChalkTex = canvasTexture(1536,384,(c,w,h)=>{
   c.clearRect(0,0,w,h);
   c.save();
-  c.translate(w/2, h/2+6);
+  c.translate(w/2, h/2+12);
   c.rotate(-0.025);
   c.textAlign='center';
   c.textBaseline='middle';
   c.lineJoin='round';
   c.lineCap='round';
-  c.font='900 78px "Malgun Gothic", sans-serif';
+  c.font='900 156px "Malgun Gothic", sans-serif';
   c.strokeStyle='rgba(255,255,255,.36)';
-  c.lineWidth=16;
+  c.lineWidth=32;
   c.strokeText('잘생긴 세훈이', 0, 0);
   c.fillStyle='rgba(255,255,255,.96)';
   c.fillText('잘생긴 세훈이', 0, 0);
-  for(let i=0;i<110;i++){
+  for(let i=0;i<220;i++){
     c.fillStyle = `rgba(255,255,255,${0.12+Math.random()*0.22})`;
     c.beginPath();
-    c.arc(-300+Math.random()*600, -58+Math.random()*116, 1+Math.random()*2.4, 0, Math.PI*2);
+    c.arc(-600+Math.random()*1200, -116+Math.random()*232, 2+Math.random()*4.8, 0, Math.PI*2);
     c.fill();
   }
   c.restore();
@@ -763,7 +762,7 @@ const sudalChalkTex = canvasTexture(768,192,(c,w,h)=>{
 const sudalChalkMat = new THREE.MeshBasicMaterial({
   map:sudalChalkTex, transparent:true, depthWrite:false, opacity:0
 });
-const sudalChalk = mesh(new THREE.PlaneGeometry(4.9,1.25), sudalChalkMat, -12,6.62,5.28, false);
+const sudalChalk = mesh(new THREE.PlaneGeometry(14.7,3.75), sudalChalkMat, -12,7.0,5.28, false);
 sudalChalk.visible = false;
 sudalChalk.renderOrder = 6;
 school.add(sudalChalk);
@@ -2847,6 +2846,88 @@ function makeCatBallEvt(){
   }};
 }
 
+/* ---------------- 밤이 축구 이벤트 ---------------- */
+let ballOwnedByEvent = false;
+function makeSoccerEvt(){
+  const playing = kids.filter(k=>k.state==='play');
+  const bami = playing.find(k=>k.name==='밤이');
+  if(!bami || playing.length < 3) return null;
+  const order = [bami, ...shuffle(playing.filter(k=>k!==bami))]; /* 밤이가 먼저 시작 */
+  /* 운동장에 랜덤하게 흩어진 위치(서로 너무 겹치지 않게) */
+  const spots = [];
+  for(const k of order){
+    let p, ok=false, tries=0;
+    while(!ok && tries++<30){
+      p = new THREE.Vector3((Math.random()*2-1)*18, 0, -4 + (Math.random()*2-1)*8.5);
+      ok = spots.every(s=>s.distanceToSquared(p) > 16);
+    }
+    spots.push(p);
+  }
+  order.forEach(k=>{ k.state='event'; k.gotoTarget=null; k.celebT=0; k.startleT=0; k.walkAmt=0; });
+  ballOwnedByEvent = true;
+  ballVel.set(0,0,0);
+  const goalTarget = new THREE.Vector3(0, 0.7, -15.4); /* 골대 안쪽 */
+  const tv=new THREE.Vector3(), fromV=new THREE.Vector3(), toV=new THREE.Vector3();
+  const handPos=(k,out)=> out.set(k.pos.x+Math.sin(k.heading)*0.55, 0.55, k.pos.z+Math.cos(k.heading)*0.55);
+  let phase='gather', pt=0, segT=0, passIdx=0, cleaned=false, scored=false, cheered=false;
+  const finish=()=>{ if(cleaned)return; cleaned=true; ballOwnedByEvent=false; ballVel.set(0,0,0);
+    ball.position.set(2,0.55,-2); order.forEach(k=>{ if(k.b.legs?.length) k.b.legs.forEach(l=>l.rotation.x=0); }); release(order); };
+  return {kind:'soccer', cancel:finish, update(dt,t){
+    pt+=dt;
+    const faceToward=(k,target)=>{ const dx=target.x-k.pos.x, dz=target.z-k.pos.z;
+      if(dx*dx+dz*dz>1e-4){ const want=Math.atan2(dx,dz); let diff=want-k.heading;
+        while(diff>Math.PI)diff-=Math.PI*2; while(diff<-Math.PI)diff+=Math.PI*2;
+        k.heading+=diff*Math.min(1,dt*8); k.g.rotation.y=k.heading; } };
+    if(phase==='gather'){
+      let all=true;
+      order.forEach((k,i)=>{ const d=k.moveToward(spots[i],dt,0.9); k.locomote(dt,t); if(d>=0.7) all=false; });
+      handPos(bami,tv); ball.position.copy(tv); ball.position.y=0.55;
+      if(all || pt>10){ phase='pass'; pt=0; segT=0; passIdx=0; bami.say('다같이 축구하자!'); }
+    } else if(phase==='pass'){
+      segT+=dt;
+      const passDur=1.5;
+      const from=order[passIdx];
+      const isShot = passIdx===order.length-1;
+      const to = isShot?null:order[passIdx+1];
+      handPos(from,fromV);
+      const target = isShot ? goalTarget : (handPos(to,toV), toV);
+      /* 시선: 패스하는 아이는 목표를, 나머지는 공을 본다 */
+      order.forEach(k=>{ if(k!==from){ faceToward(k, ball.position); k.idle(); k.locomote(dt,t); } });
+      faceToward(from, target); from.idle(); from.locomote(dt,t);
+      if(from.b.legs?.length>=2) from.b.legs[0].rotation.x = segT<0.32 ? -1.1*(1-segT/0.32) : 0;
+      const u=Math.min(1,segT/passDur);
+      const e=u<0.5?2*u*u:1-Math.pow(-2*u+2,2)/2;
+      ball.position.lerpVectors(fromV,target,e);
+      ball.position.y += Math.sin(u*Math.PI)*(isShot?2.6:1.0);
+      ball.rotation.x += dt*7; ball.rotation.z -= dt*5;
+      if(segT<dt*1.5){ from.say(isShot?'슛!':(passIdx===0?'간다, 패스!':pick(['패스!','받아!','여기야!']))); }
+      if(segT>=passDur){
+        if(isShot){ phase='goal'; pt=0; scored=false; }
+        else { to.say(pick(['오케이!','받았어!','좋아!'])); passIdx++; segT=0; }
+      }
+    } else { /* goal */
+      if(!scored){ scored=true; ball.position.copy(goalTarget);
+        puff(sparkTex, goalTarget.clone(), 10, {size:0.8, life:1.2});
+        order[order.length-1].say('골인! ⚽'); }
+      ball.position.lerp(new THREE.Vector3(goalTarget.x,0.55,goalTarget.z), Math.min(1,dt*2.5));
+      order.forEach((k,i)=>{ k.idle(); k.locomote(dt,t);
+        k.g.position.y = Math.abs(Math.sin(t*6+i))*0.4;
+        if(k.b.arms?.length>=2){ k.b.arms[0].rotation.z=2.1; k.b.arms[1].rotation.z=-2.1; } });
+      if(!cheered && pt>0.8){ cheered=true; bami.say('우리 팀 최고!'); }
+      if(Math.random()<dt*3) puff(Math.random()<0.5?heartTex:sparkTex, goalTarget.clone().setY(2),1,{size:0.6});
+      if(pt>4){ finish(); return true; }
+    }
+    return false;
+  }};
+}
+function tryStartScheduledSoccer(){
+  const plan = dueDailyPlan('soccer', 8, 12);
+  if(!plan) return null;
+  const ev = limitEventDuration(makeSoccerEvt());
+  if(ev) markDailyPlanFired('soccer', plan);
+  return ev;
+}
+
 function dateKey(now=new Date()){
   const p = n => String(n).padStart(2,'0');
   return `${now.getFullYear()}-${p(now.getMonth()+1)}-${p(now.getDate())}`;
@@ -2917,14 +2998,17 @@ function makeMathGuestEvt(guestId=null){
     k, ang:i/kids.length*Math.PI*2, radius:R + (i%3-1)*0.7,
     noteT:1+Math.random()*2
   }));
+  const skyY = 46, dropDur = 2.6;
   scene.add(guest.group);
-  guest.group.position.set(-68,0,center.z);
-  guest.group.scale.setScalar(0.05);
+  guest.group.position.set(center.x, skyY, center.z);
+  guest.group.scale.setScalar(0.25);
+  if(guest.model){ guest.model.rotation.set(0, guest.faceYaw, 0); } /* 낙하 중 정면 */
+  if(guest.guestShadow){ guest.guestShadow.scale.setScalar(0.25); guest.guestShadow.material.opacity = 0.04; }
   members.forEach(m=>{
     m.k.state='event';
     m.k.gotoTarget=null; m.k.celebT=0; m.k.startleT=0; m.k.walkAmt=0;
   });
-  let pt=0, nextSay=1.2;
+  let pt=0, nextSay=999, landed=false; /* 첫 대사는 착지 직후 */
   const tv = new THREE.Vector3();
   let cleaned = false;
   const finish = ()=>{
@@ -2942,25 +3026,45 @@ function makeMathGuestEvt(guestId=null){
   return {kind:'mathGuest', guest:def.name, cancel:finish, update(dt,t){
     pt += dt;
     guest.update?.(dt); /* GLB 애니메이션 클립 재생 */
-    const intro = THREE.MathUtils.smoothstep(Math.min(pt/8,1), 0, 1);
     const outro = pt > 84 ? 1-THREE.MathUtils.smoothstep((pt-84)/6, 0, 1) : 1;
-    guest.group.position.x = THREE.MathUtils.lerp(-68, center.x, intro);
-    guest.group.position.z = center.z + Math.sin(t*0.55)*0.25;
-    guest.group.position.y = Math.sin(t*1.7)*0.12;
-    guest.group.scale.setScalar(Math.max(0.05, intro*outro));
 
-    /* 코기코/알라코 직접 만든 이벤트 움직임: 등장 후 폴짝폴짝 + 빙글빙글 + 좌우 흔들 */
-    if(guest.model){
-      const m = guest.model, danceT = Math.max(0, pt-8);
-      const hop = danceT > 0 ? Math.abs(Math.sin(t*2.6)) : 0;
-      m.position.y = guest.basePos.y + hop*1.4;
-      m.position.x = guest.basePos.x + Math.sin(t*1.3)*0.5;
-      m.rotation.y = Math.PI + Math.sin(danceT*0.9)*0.6 + danceT*0.25;
-      m.rotation.z = Math.sin(t*2.6)*0.06;
-      const sq = 1 + Math.cos(t*5.2)*0.05*(danceT>0?1:0);
-      m.scale.set(1/sq, sq, 1/sq);
-      if(danceT > 0 && Math.random() < dt*2.4)
-        puff(Math.random()<0.5?noteTex:sparkTex, guest.group.localToWorld(m.position.clone().setY(m.position.y+8)), 1, {size:0.7, life:1.2});
+    if(pt < dropDur){
+      /* 하늘에서 점점 커지면서 떨어지는 등장 */
+      const u = pt/dropDur;
+      const e = 1-Math.pow(1-u,3); /* easeOutCubic 낙하 */
+      guest.group.position.set(center.x, THREE.MathUtils.lerp(skyY, 0, e), center.z);
+      guest.group.scale.setScalar(THREE.MathUtils.lerp(0.25, 1, u));
+      if(guest.guestShadow){
+        guest.guestShadow.scale.setScalar(THREE.MathUtils.lerp(0.25, 1, e));
+        guest.guestShadow.material.opacity = THREE.MathUtils.lerp(0.04, 0.2, e);
+      }
+      if(guest.model){ const bs=guest.model.userData.baseScale||1; guest.model.position.copy(guest.basePos); guest.model.rotation.set(0, guest.faceYaw, 0); guest.model.scale.setScalar(bs); }
+    } else {
+      if(!landed){
+        landed = true;
+        guest.group.position.set(center.x, 0, center.z);
+        guest.group.scale.setScalar(1);
+        guest.say(`${def.name} 등장! 수학 시작!`);
+        nextSay = pt + 11 + Math.random()*4;
+        puff(sparkTex, new THREE.Vector3(center.x+guest.basePos.x, 0.5, center.z+guest.basePos.z), 10, {size:0.9, life:1.1});
+      }
+      guest.group.position.z = center.z + Math.sin(t*0.55)*0.25;
+      guest.group.position.y = Math.sin(t*1.7)*0.12;
+      guest.group.scale.setScalar(Math.max(0.05, outro));
+
+      /* 코기코/알라코 이벤트 움직임: 착지 후 폴짝폴짝 + 빙글빙글 + 좌우 흔들 */
+      if(guest.model){
+        const m = guest.model, bs = m.userData.baseScale||1, danceT = Math.max(0, pt-8);
+        const hop = danceT > 0 ? Math.abs(Math.sin(t*2.6)) : 0;
+        m.position.y = guest.basePos.y + hop*1.4;
+        m.position.x = guest.basePos.x + (danceT>0?Math.sin(t*1.3)*0.5:0);
+        m.rotation.y = guest.faceYaw + (danceT>0 ? Math.sin(danceT*0.9)*0.6 + danceT*0.25 : 0);
+        m.rotation.z = danceT>0 ? Math.sin(t*2.6)*0.06 : 0;
+        const sq = 1 + Math.cos(t*5.2)*0.05*(danceT>0?1:0);
+        m.scale.set(bs/sq, bs*sq, bs/sq); /* 정규화 배율 위에 스쿼시 */
+        if(danceT > 0 && Math.random() < dt*2.4)
+          puff(Math.random()<0.5?noteTex:sparkTex, guest.group.localToWorld(m.position.clone().setY(m.position.y+10)), 1, {size:0.7, life:1.2});
+      }
     }
 
     if(pt >= nextSay && pt < 82){
@@ -3111,7 +3215,8 @@ function tryStartScheduledDroneEvent(){
 const EVENT_MAKERS = {
   race:makeRace, dance:makeDance, chat:makeChat, swing:makeSwingEvt,
   slide:makeSlideEvt, monkey:makeMonkeyClimbEvt, math:makeMathGuestEvt,
-  kodolSongmiTag:makeKodolSongmiTagEvt, catBall:makeCatBallEvt, sudalChalk:makeSudalChalkEvt
+  kodolSongmiTag:makeKodolSongmiTagEvt, catBall:makeCatBallEvt, sudalChalk:makeSudalChalkEvt,
+  soccer:makeSoccerEvt
 };
 const RANDOM_EVENT_KEYS = ['race','dance','chat','swing','slide','kodolSongmiTag','race','dance'];
 const AUTO_MONKEY_MIN_SECONDS = 540;
@@ -3179,6 +3284,7 @@ window.__ow = {
   forceEvent:(n)=>replaceMainEvent(()=>tryStartEvent(n)),
   forceMathGuest:(n)=>replaceMainEvent(()=>limitEventDuration(makeMathGuestEvt(n))),
   forceCatBall:()=>replaceMainEvent(()=>limitEventDuration(makeCatBallEvt())),
+  forceSoccer:()=>replaceMainEvent(()=>limitEventDuration(makeSoccerEvt())),
   forceSudalChalk:()=>replaceMainEvent(()=>limitEventDuration(makeSudalChalkEvt())),
   forceDroneNyang:()=>replaceSkyEvent(()=>limitEventDuration(makeDroneNyangEvt(), MAX_EVENT_SECONDS, false)),
   forcePadakFly:()=>{ if(padakFlyEvt) return false; if(padak.state!=='play') return false; padakFlyEvt = makePadakFlyEvt(); return !!padakFlyEvt; },
@@ -3198,7 +3304,7 @@ window.__ow = {
   ['달리기','race'], ['강강술래','dance'], ['수다','chat'], ['그네','swing'],
   ['미끄럼틀','slide'], ['코돌이 술래','kodolSongmiTag'], ['뭉키 나무','monkey'], ['알라코 수학','math:alaco'],
   ['코기코 수학','math:cogico'], ['수학 랜덤','math'], ['고양이 공놀이','catBall'],
-  ['수달이 낙서','sudalChalk']
+  ['밤이 축구','soccer'], ['수달이 낙서','sudalChalk']
 ].forEach(([label, name])=>{
   const b = document.createElement('button');
   b.type = 'button';
@@ -3208,6 +3314,7 @@ window.__ow = {
     else if(name === 'math:cogico') window.__ow.forceMathGuest('cogico');
     else if(name === 'math') window.__ow.forceMathGuest();
     else if(name === 'catBall') window.__ow.forceCatBall();
+    else if(name === 'soccer') window.__ow.forceSoccer();
     else if(name === 'sudalChalk') window.__ow.forceSudalChalk();
     else window.__ow.forceEvent(name);
   };
@@ -3253,7 +3360,7 @@ function animate(){
     if(evt.update(dt, t)){ evt = null; evtTimer = 34 + Math.random()*26; }
   } else {
     autoMonkeyTimer -= dt;
-    const scheduled = tryStartScheduledSudalChalk() || tryStartScheduledCatBallEvent() || tryStartScheduledMathEvent() || tryStartScheduledMonkeyClimb();
+    const scheduled = tryStartScheduledSudalChalk() || tryStartScheduledCatBallEvent() || tryStartScheduledMathEvent() || tryStartScheduledSoccer() || tryStartScheduledMonkeyClimb();
     if(scheduled){
       evt = scheduled;
       evtTimer = 34 + Math.random()*26;
@@ -3289,19 +3396,21 @@ function animate(){
   star.position.y = 0.2+Math.abs(Math.sin(t*3))*0.3;
   star.rotation.y += dt;
 
-  /* 공 물리 + 아이들이 지나가며 톡 차기 */
-  ball.position.addScaledVector(ballVel, dt);
-  ballVel.multiplyScalar(Math.max(0, 1-dt*1.2));
-  ball.rotation.x += ballVel.z*dt*2; ball.rotation.z -= ballVel.x*dt*2;
-  if(Math.abs(ball.position.x) > 24){ ball.position.x=Math.sign(ball.position.x)*24; ballVel.x*=-0.8; }
-  if(ball.position.z < -14 || ball.position.z > 8){
-    ball.position.z = THREE.MathUtils.clamp(ball.position.z,-14,8); ballVel.z*=-0.8; }
-  for(const k of kids){
-    if(k.name==='밤이') continue;
-    if(k.pos.distanceTo(ball.position) < 0.95 && ballVel.length() < 0.5){
-      tmpV.subVectors(ball.position, k.pos).setY(0).normalize();
-      ballVel.addScaledVector(tmpV, 2.2);
-      puff(sparkTex, ball.position.clone().setY(0.8), 1, {size:0.4});
+  /* 공 물리 + 아이들이 지나가며 톡 차기 (축구 이벤트 중에는 이벤트가 공을 제어) */
+  if(!ballOwnedByEvent){
+    ball.position.addScaledVector(ballVel, dt);
+    ballVel.multiplyScalar(Math.max(0, 1-dt*1.2));
+    ball.rotation.x += ballVel.z*dt*2; ball.rotation.z -= ballVel.x*dt*2;
+    if(Math.abs(ball.position.x) > 24){ ball.position.x=Math.sign(ball.position.x)*24; ballVel.x*=-0.8; }
+    if(ball.position.z < -14 || ball.position.z > 8){
+      ball.position.z = THREE.MathUtils.clamp(ball.position.z,-14,8); ballVel.z*=-0.8; }
+    for(const k of kids){
+      if(k.name==='밤이') continue;
+      if(k.pos.distanceTo(ball.position) < 0.95 && ballVel.length() < 0.5){
+        tmpV.subVectors(ball.position, k.pos).setY(0).normalize();
+        ballVel.addScaledVector(tmpV, 2.2);
+        puff(sparkTex, ball.position.clone().setY(0.8), 1, {size:0.4});
+      }
     }
   }
 
