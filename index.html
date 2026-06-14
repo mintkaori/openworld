@@ -483,13 +483,10 @@ function makeMathBoard(name, color){
 const GUEST_FACE_YAW = 0; /* 모델 정면(얼굴)이 카메라(+z)를 향하도록 — 절대 등을 보이지 않음 */
 function createMathGuest(def){
   const group = new THREE.Group();
-  const shadow = new THREE.Mesh(new THREE.CircleGeometry(4.2,36),
-    new THREE.MeshBasicMaterial({color:0x1f3b24, transparent:true, opacity:0.2, depthWrite:false}));
-  shadow.rotation.x = -Math.PI/2; shadow.position.y = 0.04; group.add(shadow);
 
   /* 3D 모델 우선, 아직 로딩 전이면 스프라이트로 임시 표시 */
   let body, model = null, mixer = null;
-  const guestPos = new THREE.Vector3(-3.8, 0, 2.2);
+  const guestPos = new THREE.Vector3(-1.5, 0, 2.2); /* 살짝 오른쪽(중앙쪽)으로 이동 */
   const attachModelIfReady = ()=>{
     if(model || !def.modelProto) return false;
     if(body && body.isSprite) group.remove(body);
@@ -508,17 +505,13 @@ function createMathGuest(def){
   if(!attachModelIfReady()){
     loadGuestModel(def);
     body = imageSprite(def.tex, def.aspect, 13.5);
-    body.position.set(-3.8, 6.9, 2.2); group.add(body);
+    body.position.set(guestPos.x, 6.9, 2.2); group.add(body);
   }
-  const guestShadow = new THREE.Mesh(new THREE.CircleGeometry(4.4,36),
-    new THREE.MeshBasicMaterial({color:0x1f3b24, transparent:true, opacity:0.2, depthWrite:false}));
-  guestShadow.rotation.x = -Math.PI/2;
-  guestShadow.position.set(-3.8,0.06,2.2);
-  group.add(guestShadow);
+  const guestShadow = null; /* 코기코/알라코 밑 원형 그림자 2개 제거(요청) */
   const board = makeMathBoard(def.name, def.color);
   board.position.set(5.3, 5.2, -0.9); group.add(board);
   const label = makeLabel(`${def.name} 수학 선생님`, def.color);
-  label.position.set(-3.8, 14.0, 2.2); label.scale.multiplyScalar(1.25); group.add(label);
+  label.position.set(guestPos.x, 14.0, 2.2); label.scale.multiplyScalar(1.25); group.add(label);
   let bubble = null;
   return {
     group, board, guestShadow, faceYaw:GUEST_FACE_YAW, basePos:guestPos.clone(),
@@ -528,8 +521,8 @@ function createMathGuest(def){
     say(text){
       if(bubble){ group.remove(bubble); bubble.material.map.dispose(); bubble.material.dispose(); }
       bubble = makeBubble(text);
-      bubble.position.set(-2.2, 15.2, 2.2);
-      bubble.scale.multiplyScalar(1.2);
+      bubble.position.set(guestPos.x+0.8, 17.4, 2.2);
+      bubble.scale.multiplyScalar(2.4); /* 말풍선 자체 크기 2배 */
       group.add(bubble);
     },
     clear(){
@@ -953,10 +946,9 @@ function taegeukCanvas(c,w,h){
   drawTrigram(c,cx+R*1.7, cy+R*0.95, R*0.95, -Math.PI/5.2, [-1,0,1]);
 }
 function koreaFaceCanvas(c,w,h){
-  c.clearRect(0,0,w,h);
+  /* 태극기 배경처럼 얼굴통 전체를 깨끗한 흰색으로 채움 */
+  c.fillStyle='#ffffff'; c.fillRect(0,0,w,h);
   const cx=w/2, cy=h/2, R=w*0.18;
-  c.fillStyle='rgba(255,255,255,.96)';
-  c.beginPath(); c.arc(cx,cy,w*0.47,0,Math.PI*2); c.fill();
   drawTaegeukMark(c,cx,cy,R);
   drawTrigram(c,cx-R*1.75, cy-R*1.35, R*0.72, -Math.PI/5.2, []);
   drawTrigram(c,cx+R*1.75, cy-R*1.35, R*0.72,  Math.PI/5.2, [-1,1]);
