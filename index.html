@@ -360,30 +360,32 @@ function roundRect(ctx,x,y,w,h,r){
 }
 function makeLabel(text, color){
   return spriteFromCanvas((ctx,w,h)=>{
-    ctx.font = '700 44px "Malgun Gothic", sans-serif';
-    const tw = ctx.measureText(text).width + 44;
+    ctx.font = '800 50px "Malgun Gothic", sans-serif';
+    const tw = ctx.measureText(text).width + 56;
     const x=(w-tw)/2;
-    ctx.fillStyle='rgba(255,255,255,.88)';
-    roundRect(ctx,x,18,tw,72,34); ctx.fill();
-    ctx.lineWidth=6; ctx.strokeStyle=color; ctx.stroke();
-    ctx.fillStyle='#5a4632'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillStyle='#ffffff';
+    roundRect(ctx,x,14,tw,82,38); ctx.fill();
+    ctx.lineWidth=7; ctx.strokeStyle=color; ctx.stroke();
+    ctx.fillStyle='#2a1d12'; ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillText(text, w/2, 56);
-  }, 512,108, 1.0);
+  }, 512,116, 1.0);
 }
 function makeBubble(text){
   return spriteFromCanvas((ctx,w,h)=>{
-    ctx.font='700 52px "Malgun Gothic", sans-serif';
-    const tw = Math.min(w-20, ctx.measureText(text).width+60);
+    ctx.font='900 64px "Malgun Gothic", sans-serif';
+    const tw = Math.min(w-24, ctx.measureText(text).width+80);
     const x=(w-tw)/2;
-    ctx.fillStyle='rgba(255,255,255,.96)';
-    roundRect(ctx,x,12,tw,96,40); ctx.fill();
-    ctx.strokeStyle='#f7a8c4'; ctx.lineWidth=7; ctx.stroke();
+    ctx.fillStyle='#ffffff';
+    roundRect(ctx,x,10,tw,120,46); ctx.fill();
+    ctx.strokeStyle='#e07a9f'; ctx.lineWidth=9; ctx.stroke();
     ctx.beginPath();
-    ctx.moveTo(w/2-18,104); ctx.lineTo(w/2+20,104); ctx.lineTo(w/2,138); ctx.closePath();
-    ctx.fillStyle='rgba(255,255,255,.96)'; ctx.fill();
-    ctx.fillStyle='#7a4a2a'; ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText(text, w/2, 62, tw-50);
-  }, 1024,144, 1.5);
+    ctx.moveTo(w/2-22,128); ctx.lineTo(w/2+24,128); ctx.lineTo(w/2,170); ctx.closePath();
+    ctx.fillStyle='#ffffff'; ctx.fill();
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.lineJoin='round'; ctx.lineWidth=10; ctx.strokeStyle='#ffffff';
+    ctx.strokeText(text, w/2, 68, tw-60); /* 흰 외곽선으로 또렷하게 */
+    ctx.fillStyle='#201207'; ctx.fillText(text, w/2, 68, tw-60);
+  }, 1024,180, 1.72);
 }
 const heartTex = canvasTexture(128,128,(c)=>{
   c.fillStyle='#ff6fa5';
@@ -3376,6 +3378,39 @@ function makeStrawberryMesh(){
   g.add(cone(0.12,0.18,0x4f8f3d,0,0.16,0,6));
   return g;
 }
+function makeBerryCrate(){
+  const g = new THREE.Group();
+  const wood=0xb78a52;
+  g.add(box(1.05,0.52,0.74, wood, 0,0.26,0));
+  g.add(box(1.1,0.12,0.8, 0x8a6a42, 0,0.52,0));
+  for(const p of [[-0.27,0.62,0.12],[0.27,0.64,-0.06],[0.02,0.68,0.16],[0.08,0.63,-0.22],[-0.1,0.66,-0.02]]){
+    g.add(sph(0.16,0xe23b4e, p[0],p[1],p[2], 1,1.05,1));
+    g.add(cone(0.09,0.13,0x4f8f3d, p[0],p[1]+0.15,p[2], 6));
+  }
+  return g;
+}
+/* 딱지: 정사각 종이를 대각선으로 4등분한 두 색 핀휠 무늬 */
+function ddakjiTexture(colA, colB){
+  return canvasTexture(256,256,(c,w,h)=>{
+    const tri=(pts,col)=>{ c.fillStyle=col; c.beginPath(); c.moveTo(pts[0],pts[1]); c.lineTo(pts[2],pts[3]); c.lineTo(pts[4],pts[5]); c.closePath(); c.fill(); };
+    tri([0,0, w,0, w/2,h/2], colA);   /* 위 */
+    tri([0,h, w,h, w/2,h/2], colA);   /* 아래 */
+    tri([0,0, 0,h, w/2,h/2], colB);   /* 왼쪽 */
+    tri([w,0, w,h, w/2,h/2], colB);   /* 오른쪽 */
+    c.strokeStyle='rgba(0,0,0,.18)'; c.lineWidth=3;
+    c.beginPath(); c.moveTo(0,0); c.lineTo(w,h); c.moveTo(w,0); c.lineTo(0,h); c.stroke();
+  });
+}
+const DDAKJI_COLORS = [[0x6a3fb5,0xf07a2a],[0x2f6fd0,0xe070b0],[0x49b04a,0xf2d23a],[0xe24b6a,0x3fb6c4]];
+function makeDdakjiTile(idx){
+  const [a,b]=DDAKJI_COLORS[idx%DDAKJI_COLORS.length];
+  const tex=ddakjiTexture('#'+a.toString(16).padStart(6,'0'), '#'+b.toString(16).padStart(6,'0'));
+  const topMat=new THREE.MeshToonMaterial({map:tex, gradientMap:gradMap});
+  const side=M(a);
+  const g=new THREE.Mesh(new THREE.BoxGeometry(0.95,0.2,0.95), [side,side,topMat,topMat,side,side]);
+  g.castShadow=true; g.receiveShadow=false;
+  return g;
+}
 
 /* 1) 딱지치기 — 전체 아이들이 짝을 지어서 */
 function makeDdakjiEvt(){
@@ -3384,22 +3419,24 @@ function makeDdakjiEvt(){
   const pairCount = Math.floor(avail.length/2);
   const members = avail.slice(0, pairCount*2);
   const pairs = [], tiles = [];
-  const tileCols = [0xe23b4e,0x3f7fd9,0xf2c94c,0x4f9fd9,0xf2729a,0x6fc063];
   for(let i=0;i<pairCount;i++){
     const a=i/pairCount*Math.PI*2;
     const cx=Math.cos(a)*13, cz=-4+Math.sin(a)*8;
     const fx=Math.cos(a+Math.PI/2), fz=Math.sin(a+Math.PI/2);
-    const tile=mesh(new THREE.BoxGeometry(0.85,0.14,0.85), M(tileCols[i%tileCols.length]), cx,0.07,cz);
-    scene.add(tile); tiles.push(tile);
+    const spotA=new THREE.Vector3(cx+fx*0.9,0,cz+fz*0.9);
+    const spotB=new THREE.Vector3(cx-fx*0.9,0,cz-fz*0.9);
+    const tileA=makeDdakjiTile(i*2);   tileA.position.set(spotA.x,0.1,spotA.z); scene.add(tileA); tiles.push(tileA);
+    const tileB=makeDdakjiTile(i*2+1); tileB.position.set(spotB.x,0.1,spotB.z); scene.add(tileB); tiles.push(tileB);
     pairs.push({ k1:members[2*i], k2:members[2*i+1],
-      p1:new THREE.Vector3(cx+fx*1.25,0,cz+fz*1.25), p2:new THREE.Vector3(cx-fx*1.25,0,cz-fz*1.25),
-      mid:new THREE.Vector3(cx,0,cz), tile, turn:0, slapT:1.2+Math.random()*1.0, win:0 });
+      p1:new THREE.Vector3(cx+fx*1.85,0,cz+fz*1.85), p2:new THREE.Vector3(cx-fx*1.85,0,cz-fz*1.85),
+      mid:new THREE.Vector3(cx,0,cz), tileA, tileB, spotA, spotB, turn:0, cyc:Math.random()*1.6, didImpact:false });
   }
   members.forEach(k=>{ k.state='event'; k.gotoTarget=null; k.celebT=0; k.startleT=0; k.walkAmt=0; });
   let phase='gather', pt=0, cleaned=false, said=false;
   const finish=()=>{ if(cleaned)return; cleaned=true;
-    tiles.forEach(tl=>{ scene.remove(tl); tl.geometry.dispose(); tl.material.dispose(); });
-    members.forEach(k=>{ if(k.b.arms?.[1]) k.b.arms[1].rotation.x=0; });
+    tiles.forEach(tl=>{ scene.remove(tl); tl.geometry.dispose();
+      (Array.isArray(tl.material)?tl.material:[tl.material]).forEach(m=>{ m.map&&m.map.dispose(); m.dispose&&m.dispose(); }); });
+    members.forEach(k=>{ if(k.b.arms?.[0]) k.b.arms[0].rotation.x=0; if(k.b.arms?.[1]) k.b.arms[1].rotation.x=0; });
     release(members); };
   return {kind:'ddakji', cancel:finish, update(dt,t){
     pt+=dt;
@@ -3412,28 +3449,50 @@ function makeDdakjiEvt(){
       }
       if(all){ phase='play'; pt=0; if(!said){said=true; pairs[0].k1.say('딱지치기 하자!');} }
     } else if(phase==='play'){
+      const C=2.4;
       for(const pr of pairs){
         faceKidToward(pr.k1, pr.mid, dt); faceKidToward(pr.k2, pr.mid, dt);
         pr.k1.idle(); pr.k1.locomote(dt,t); pr.k2.idle(); pr.k2.locomote(dt,t);
-        const thrower = pr.turn%2===0?pr.k1:pr.k2;
+        pr.cyc += dt;
+        if(pr.cyc>=C){ pr.cyc-=C; pr.turn++; pr.didImpact=false; }
+        const u=pr.cyc/C;
+        const t1 = pr.turn%2===0;
+        const thrower = t1?pr.k1:pr.k2;
+        const held = t1?pr.tileA:pr.tileB;       /* 던지는 사람의 딱지 */
+        const ground = t1?pr.tileB:pr.tileA;      /* 상대(바닥) 딱지 — 뒤집힐 대상 */
+        const hs = t1?pr.spotA:pr.spotB;          /* 던지는 딱지 원위치 */
+        const gs = t1?pr.spotB:pr.spotA;          /* 바닥 딱지 위치 */
         const arm = thrower.b.arms?.[1];
-        pr.slapT -= dt;
-        /* 팔을 들었다가 내려치는 동작 */
-        if(arm){
-          const s = pr.slapT;
-          arm.rotation.x = s>0.35 ? -2.2*Math.min(1,(s-0.35)/0.7) : -2.2*(s/0.35);
+        /* 상대 딱지는 바닥에 납작하게(뒤집힘 상태 반영) */
+        ground.position.set(gs.x, 0.1, gs.z);
+        ground.rotation.set((ground.userData.flip||0)*Math.PI, 0, 0);
+        if(u<0.45){ /* 들어올리기 */
+          const r=u/0.45;
+          held.position.set(hs.x, 0.1+r*2.6, hs.z);
+          held.rotation.set(-r*1.3, 0, 0);
+          if(arm) arm.rotation.x = -2.4*r;
+        } else if(u<0.6){ /* 상대 딱지 옆으로 내려치기 */
+          const r=(u-0.45)/0.15;
+          held.position.set(THREE.MathUtils.lerp(hs.x,gs.x,r), THREE.MathUtils.lerp(2.6,0.18,r*r), THREE.MathUtils.lerp(hs.z,gs.z,r));
+          held.rotation.x = -1.3 + r*1.3;
+          if(arm) arm.rotation.x = -2.4 + r*2.9;
+        } else { /* 충돌 + 복귀 */
+          if(!pr.didImpact){
+            pr.didImpact=true;
+            puff(sparkTex, ground.position.clone().setY(0.5), 5, {size:0.5});
+            if(Math.random()<0.5){ ground.userData.flip=(ground.userData.flip||0)+1; thrower.say(pick(['넘어갔다!','내가 이겼다!','뒤집기 성공!'])); }
+            else thrower.say(pick(['넘어가라!','딱!','아, 아깝다!','한 판 더!']));
+          }
+          const r=(u-0.6)/0.4;
+          held.position.set(THREE.MathUtils.lerp(gs.x,hs.x,r), 0.18+Math.sin(r*Math.PI)*0.35, THREE.MathUtils.lerp(gs.z,hs.z,r));
+          held.rotation.x *= Math.max(0,1-dt*6);
+          if(arm) arm.rotation.x *= Math.max(0,1-dt*6);
         }
-        if(pr.slapT<=0){
-          pr.tile.rotation.x += Math.PI*(Math.random()<0.5?1:-1)*0.5;
-          pr.tile.position.y = 0.07 + 0.5; pr.tile.userData.fall=true;
-          puff(sparkTex, pr.tile.position.clone().setY(0.5), 2, {size:0.4});
-          if(Math.random()<0.55) thrower.say(pick(['딱!','넘어가라!','내가 이겼다!','한 판 더!','으랏차!']));
-          pr.turn++; pr.slapT = 1.3+Math.random()*1.1;
-        }
-        if(pr.tile.position.y>0.07){ pr.tile.position.y=Math.max(0.07, pr.tile.position.y-dt*3); }
       }
-      if(pt>24){ phase='end'; pt=0; }
+      if(pt>26){ phase='end'; pt=0; }
     } else {
+      pairs.forEach(pr=>{ pr.tileA.rotation.set((pr.tileA.userData.flip||0)*Math.PI,0,0); pr.tileA.position.y=0.1;
+        pr.tileB.rotation.set((pr.tileB.userData.flip||0)*Math.PI,0,0); pr.tileB.position.y=0.1; });
       members.forEach(k=>{ k.idle(); k.locomote(dt,t); if(k.b.arms?.[1]) k.b.arms[1].rotation.x*=Math.max(0,1-dt*4); });
       if(pt>2){ finish(); return true; }
     }
@@ -3534,40 +3593,43 @@ function makeSideRollEvt(){
   const startX=-9, endX=9, z0=14;
   members.forEach((k,i)=>{ k.state='event'; k.gotoTarget=null; k.celebT=0; k.startleT=0; k.walkAmt=0;
     k._rollZ = z0 + (i-(members.length-1)/2)*2.6; });
+  const _qLie = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0), -Math.PI/2); /* 머리=북(+z)으로 눕기 */
+  const _axZ = new THREE.Vector3(0,0,1), _qz=new THREE.Quaternion(), _qI=new THREE.Quaternion();
   let phase='gather', pt=0, dir=1, cleaned=false, said=false, laps=0;
   const finish=()=>{ if(cleaned)return; cleaned=true;
-    members.forEach(k=>{ k.g.rotation.set(0,0,0); }); release(members); };
+    members.forEach(k=>{ k.g.quaternion.identity(); k.g.rotation.set(0,0,0); k.g.position.y=0; }); release(members); };
   return {kind:'sideRoll', cancel:finish, update(dt,t){
     pt+=dt;
     if(phase==='gather'){
       let all=true;
       members.forEach(k=>{ const d=k.moveToward(new THREE.Vector3(startX,0,k._rollZ),dt,1.0); k.locomote(dt,t); if(d>=0.5) all=false; });
-      if(all || pt>9){ phase='roll'; pt=0; members.forEach(k=>{ k.g.position.x=startX; k.heading=0; k.g.rotation.y=0; });
-        if(!said){said=true; rino.say('다같이 옆으로 굴러~!');} }
+      if(all || pt>9){ phase='roll'; pt=0; members.forEach(k=>{ k.g.position.set(startX,0.55,k._rollZ); k.heading=0; k._roll=0; });
+        if(!said){said=true; rino.say('다같이 누워서 옆으로 굴러~!');} }
     } else if(phase==='roll'){
       let done=true;
-      members.forEach((k,i)=>{
+      members.forEach((k)=>{
         const targetX = dir>0?endX:startX;
-        const nx = k.g.position.x + dir*dt*3.4;
+        const nx = k.g.position.x + dir*dt*3.0;
         k.g.position.x = dir>0?Math.min(targetX,nx):Math.max(targetX,nx);
         k.g.position.z = k._rollZ;
-        k.g.rotation.z -= dir*dt*5.5; /* 옆구르기 회전 */
-        k.g.rotation.y = 0;
-        k.g.position.y = 0.45 + Math.abs(Math.sin(k.g.rotation.z*1.0))*0.12;
+        k.g.position.y = 0.55;
+        k._roll = (k._roll||0) - dir*dt*4.2;            /* 남북(z)축 기준 옆으로 구르기 */
+        _qz.setFromAxisAngle(_axZ, k._roll);
+        k.g.quaternion.copy(_qz).multiply(_qLie);        /* 눕힌 뒤 z축으로 회전 = 통나무 굴리기 */
         k.walkAmt=0;
-        if(Math.random()<dt*0.5) puff(sparkTex, k.pos.clone().setY(0.4),1,{size:0.32});
+        if(Math.random()<dt*0.4) puff(sparkTex, k.pos.clone().setY(0.4),1,{size:0.3});
         if((dir>0 && k.g.position.x<targetX) || (dir<0 && k.g.position.x>targetX)) done=false;
       });
       if(done){
         dir*=-1; pt=0;
-        if(Math.random()<0.8) members[Math.floor(Math.random()*members.length)].say(pick(['데굴데굴~','어지러워!','또 가자!','구르기 최고!']));
-        members.forEach(k=>{ k.g.rotation.z = Math.round(k.g.rotation.z/(Math.PI*2))*(Math.PI*2); });
+        if(Math.random()<0.85) members[Math.floor(Math.random()*members.length)].say(pick(['데굴데굴~','어지러워!','또 가자!','구르기 최고!']));
+        members.forEach(k=>{ k._roll = Math.round(k._roll/(Math.PI*2))*(Math.PI*2); });
         laps++;
         if(laps>=3){ phase='end'; pt=0; }
       }
     } else {
-      members.forEach(k=>{ k.g.rotation.z*=Math.max(0,1-dt*5); k.g.position.y=Math.max(0,k.g.position.y-dt*1.5); k.idle(); k.locomote(dt,t); });
-      if(pt>2){ finish(); return true; }
+      members.forEach(k=>{ k.g.quaternion.slerp(_qI, Math.min(1,dt*4)); k.g.position.y=Math.max(0,k.g.position.y-dt*1.6); k.walkAmt=0; });
+      if(pt>1.6){ finish(); return true; }
     }
     return false;
   }};
@@ -3633,13 +3695,16 @@ function makeStrawberryShareEvt(){
   const gatherCenter = new THREE.Vector3(-30,0,2);
   friends.forEach((k,i)=>{ k._stPos = new THREE.Vector3(gatherCenter.x + (i-(friends.length-1)/2)*3.0, 0, gatherCenter.z); });
   [kodol,...friends].forEach(k=>{ k.state='event'; k.gotoTarget=null; k.celebT=0; k.startleT=0; k.walkAmt=0; });
-  const carried = makeStrawberryMesh(); carried.visible=false; scene.add(carried);
+  const carried = makeBerryCrate(); carried.visible=false; scene.add(carried);
   const given = [];
-  let phase='toBerry', pt=0, idx=0, cleaned=false, picked=false;
+  let phase='toBerry', pt=0, idx=0, cleaned=false;
+  const holdBox = ()=>{ const w=kodol.pos.clone().add(new THREE.Vector3(Math.sin(kodol.heading)*0.95, 0.62, Math.cos(kodol.heading)*0.95));
+    carried.position.copy(w); carried.rotation.y=kodol.heading;
+    if(kodol.b.arms){ kodol.b.arms[0].rotation.x=-1.1; kodol.b.arms[1].rotation.x=-1.1; } };
   const finish=()=>{ if(cleaned)return; cleaned=true;
     scene.remove(carried);
     given.forEach(s=>scene.remove(s));
-    if(kodol.b.arms?.[1]) kodol.b.arms[1].rotation.set(0,0,0);
+    if(kodol.b.arms){ kodol.b.arms[0].rotation.set(0,0,0); kodol.b.arms[1].rotation.set(0,0,0); }
     release([kodol,...friends]); };
   return {kind:'strawberry', cancel:finish, update(dt,t){
     pt+=dt;
@@ -3651,22 +3716,23 @@ function makeStrawberryShareEvt(){
     } else if(phase==='harvest'){
       kodol.idle(); kodol.locomote(dt,t);
       faceKidToward(kodol, berry.position, dt);
+      /* 바닥의 상자에 딸기를 담는 동작 */
+      carried.visible=true;
+      carried.position.copy(kodol.pos).add(new THREE.Vector3(Math.sin(kodol.heading)*1.05,0,Math.cos(kodol.heading)*1.05));
+      carried.rotation.y = kodol.heading;
       kodol.b.arms[1].rotation.x = -1.0 + Math.sin(t*5)*0.6; /* 따는 동작 */
       kodol.b.headG.rotation.x = Math.sin(t*5)*0.12;
       if(Math.random()<dt*1.5) puff(heartTex, kodol.pos.clone().setY(1.6),1,{size:0.4});
-      if(pt>3.2){ phase='give'; pt=0; idx=0; picked=false; kodol.b.headG.rotation.x=0; carried.visible=true; }
+      if(pt>3.2){ phase='give'; pt=0; idx=0; kodol.b.headG.rotation.x=0; kodol.say('이제 나눠줄게!'); }
     } else if(phase==='give'){
       if(idx>=friends.length){ phase='done'; pt=0; kodol.say('맛있게 먹어~!'); return false; }
       const f=friends[idx];
-      /* 딸기를 들고 친구에게 */
-      const handW = kodol.pos.clone().setY(1.5).add(new THREE.Vector3(Math.sin(kodol.heading)*0.6,0,Math.cos(kodol.heading)*0.6));
-      carried.position.copy(handW);
-      kodol.b.arms[1].rotation.x = -0.8;
-      const d=kodol.moveToward(f.pos.clone().add(new THREE.Vector3(0,0,0)), dt, 1.0);
+      const d=kodol.moveToward(f.pos, dt, 1.0);
       kodol.locomote(dt,t);
       faceKidToward(kodol, f.pos, dt);
+      holdBox(); /* 상자를 들고 이동(locomote 이후 자세 고정) */
       if(d < 2.4){
-        /* 전달 */
+        /* 상자에서 딸기 하나 꺼내 전달 */
         const straw = makeStrawberryMesh();
         straw.position.copy(f.pos).setY(1.4); scene.add(straw); given.push(straw);
         puff(heartTex, f.pos.clone().setY(1.8), 3, {size:0.45});
@@ -3675,9 +3741,8 @@ function makeStrawberryShareEvt(){
         idx++; pt=0;
       }
     } else if(phase==='done'){
-      carried.visible=false;
       kodol.idle(); kodol.locomote(dt,t);
-      if(kodol.b.arms?.[1]) kodol.b.arms[1].rotation.x*=Math.max(0,1-dt*4);
+      holdBox();
       /* 친구들 먹는 시늉 */
       given.forEach((s,i)=>{ s.position.y = 1.4 + Math.sin(t*4+i)*0.1; });
       if(pt>3){ finish(); return true; }
