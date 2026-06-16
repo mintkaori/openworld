@@ -257,7 +257,8 @@ renderer.domElement.addEventListener('pointerdown', guardCameraInput, {capture:t
 renderer.domElement.addEventListener('wheel', guardCameraInput, {capture:true, passive:false});
 renderer.domElement.addEventListener('contextmenu', guardCameraInput, {capture:true});
 
-scene.add(new THREE.HemisphereLight(0xeaf4ff, 0xa6c585, 1.25));
+const hemiLight = new THREE.HemisphereLight(0xeaf4ff, 0xa6c585, 1.25);
+scene.add(hemiLight);
 const sun = new THREE.DirectionalLight(0xfff3d0, 1.25);
 sun.position.set(45, 70, 35);
 sun.castShadow = true;
@@ -2050,6 +2051,36 @@ function focusCharacterFront(k){
   toP.y += 3.4;
   flyCamera(toP, target, 1.1);
 }
+/* 이벤트가 잘 보이도록 자동 줌인 -> 끝나면 줌아웃 */
+let camEvtRef = null, camZoomDelay = 0, camZoomed = false, camAutoActive = false;
+function computeEventFocus(){
+  const ek = kids.filter(k=>k.state==='event');
+  if(ek.length===0) return null;
+  let cx=0,cz=0,minx=1e9,maxx=-1e9,minz=1e9,maxz=-1e9;
+  for(const k of ek){ cx+=k.pos.x; cz+=k.pos.z;
+    minx=Math.min(minx,k.pos.x); maxx=Math.max(maxx,k.pos.x);
+    minz=Math.min(minz,k.pos.z); maxz=Math.max(maxz,k.pos.z); }
+  cx/=ek.length; cz/=ek.length;
+  const spread = Math.max(maxx-minx, maxz-minz, 5);
+  const dist = THREE.MathUtils.clamp(spread*1.4 + 13, 18, 80);
+  return { target:new THREE.Vector3(cx, 2.4, cz),
+    camPos:new THREE.Vector3(cx, dist*0.62, cz + dist*0.86) };
+}
+function updateEventCamera(dt){
+  if(evt && evt!==camEvtRef){ camEvtRef=evt; camZoomDelay=3.0; camZoomed=false; }
+  if(!evt && camEvtRef){
+    camEvtRef=null;
+    if(camAutoActive){ flyCamera(DEFAULT_CAMERA_POSITION, DEFAULT_CAMERA_TARGET, 1.6); camAutoActive=false; }
+  }
+  if(camEvtRef && !camZoomed){
+    camZoomDelay -= dt;
+    if(camZoomDelay<=0){
+      const f = computeEventFocus();
+      if(f){ flyCamera(f.camPos, f.target, 1.6); camAutoActive=true; }
+      camZoomed=true;
+    }
+  }
+}
 function makeChip(text, color, onClick){
   const c = document.createElement('button');
   c.className='chip';
@@ -3405,9 +3436,10 @@ const DDAKJI_COLORS = [[0x6a3fb5,0xf07a2a],[0x2f6fd0,0xe070b0],[0x49b04a,0xf2d23
 function makeDdakjiTile(idx){
   const [a,b]=DDAKJI_COLORS[idx%DDAKJI_COLORS.length];
   const tex=ddakjiTexture('#'+a.toString(16).padStart(6,'0'), '#'+b.toString(16).padStart(6,'0'));
-  const topMat=new THREE.MeshToonMaterial({map:tex, gradientMap:gradMap});
+  const topMat=new THREE.MeshToonMaterial({map:tex, gradientMap:gradMap}); /* 앞면: 4삼각형 무늬 */
+  const backMat=M(b);   /* 뒷면: 단색(뒤집히면 보이는 면) */
   const side=M(a);
-  const g=new THREE.Mesh(new THREE.BoxGeometry(0.95,0.2,0.95), [side,side,topMat,topMat,side,side]);
+  const g=new THREE.Mesh(new THREE.BoxGeometry(0.95,0.2,0.95), [side,side,topMat,backMat,side,side]);
   g.castShadow=true; g.receiveShadow=false;
   return g;
 }
@@ -3463,9 +3495,14 @@ function makeDdakjiEvt(){
         const hs = t1?pr.spotA:pr.spotB;          /* 던지는 딱지 원위치 */
         const gs = t1?pr.spotB:pr.spotA;          /* 바닥 딱지 위치 */
         const arm = thrower.b.arms?.[1];
-        /* 상대 딱지는 바닥에 납작하게(뒤집힘 상태 반영) */
-        ground.position.set(gs.x, 0.1, gs.z);
-        ground.rotation.set((ground.userData.flip||0)*Math.PI, 0, 0);
+        /* 상대 딱지: 뒤집힐 때 통통 튀며 실제로 넘어가서 단색 뒷면이 보임 */
+        const trx=(ground.userData.flip||0)*Math.PI;
+        ground.userData.rotX = ground.userData.rotX ?? trx;
+        ground.userData.rotX += (trx - ground.userData.rotX)*Math.min(1,dt*7);
+        ground.userData.flipT = Math.max(0,(ground.userData.flipT||0)-dt);
+        const ghop = ground.userData.flipT>0 ? Math.sin((1-ground.userData.flipT/0.6)*Math.PI)*0.6 : 0;
+        ground.position.set(gs.x, 0.1+ghop, gs.z);
+        ground.rotation.set(ground.userData.rotX, 0, 0);
         if(u<0.45){ /* 들어올리기 */
           const r=u/0.45;
           held.position.set(hs.x, 0.1+r*2.6, hs.z);
@@ -3480,12 +3517,13 @@ function makeDdakjiEvt(){
           if(!pr.didImpact){
             pr.didImpact=true;
             puff(sparkTex, ground.position.clone().setY(0.5), 5, {size:0.5});
-            if(Math.random()<0.5){ ground.userData.flip=(ground.userData.flip||0)+1; thrower.say(pick(['넘어갔다!','내가 이겼다!','뒤집기 성공!'])); }
+            if(Math.random()<0.5){ ground.userData.flip=(ground.userData.flip||0)+1; ground.userData.flipT=0.6; thrower.say(pick(['넘어갔다!','내가 이겼다!','뒤집기 성공!'])); }
             else thrower.say(pick(['넘어가라!','딱!','아, 아깝다!','한 판 더!']));
           }
           const r=(u-0.6)/0.4;
           held.position.set(THREE.MathUtils.lerp(gs.x,hs.x,r), 0.18+Math.sin(r*Math.PI)*0.35, THREE.MathUtils.lerp(gs.z,hs.z,r));
-          held.rotation.x *= Math.max(0,1-dt*6);
+          const trh=(held.userData.flip||0)*Math.PI;
+          held.rotation.x += (trh-held.rotation.x)*Math.min(1,dt*6);
           if(arm) arm.rotation.x *= Math.max(0,1-dt*6);
         }
       }
@@ -3592,7 +3630,7 @@ function makeSideRollEvt(){
   const members=[rino,...others];
   const startX=-9, endX=9, z0=14;
   members.forEach((k,i)=>{ k.state='event'; k.gotoTarget=null; k.celebT=0; k.startleT=0; k.walkAmt=0;
-    k._rollZ = z0 + (i-(members.length-1)/2)*2.6; });
+    k._rollZ = z0 + (i-(members.length-1)/2)*4.2; });
   const _qLie = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0), -Math.PI/2); /* 머리=북(+z)으로 눕기 */
   const _axZ = new THREE.Vector3(0,0,1), _qz=new THREE.Quaternion(), _qI=new THREE.Quaternion();
   let phase='gather', pt=0, dir=1, cleaned=false, said=false, laps=0;
@@ -3751,6 +3789,102 @@ function makeStrawberryShareEvt(){
   }};
 }
 
+/* ================= 비 날씨 + 리노 우산 나눠주기(5분 지속) ================= */
+const rainCount = 850;
+const rainGeo = new THREE.BufferGeometry();
+const rainArr = new Float32Array(rainCount*3);
+for(let i=0;i<rainCount;i++){ rainArr[i*3]=(Math.random()*2-1)*72; rainArr[i*3+1]=Math.random()*48; rainArr[i*3+2]=-4+(Math.random()*2-1)*58; }
+rainGeo.setAttribute('position', new THREE.BufferAttribute(rainArr,3));
+const rainTex = canvasTexture(8,40,(c,w,h)=>{ const g=c.createLinearGradient(0,0,0,h);
+  g.addColorStop(0,'rgba(205,228,255,0)'); g.addColorStop(.5,'rgba(214,234,255,.95)'); g.addColorStop(1,'rgba(205,228,255,0)');
+  c.fillStyle=g; c.fillRect(2,0,4,h); });
+const rainMat = new THREE.PointsMaterial({map:rainTex, size:1.5, transparent:true, depthWrite:false, sizeAttenuation:true, color:0xd6eaff, fog:false});
+const rainPoints = new THREE.Points(rainGeo, rainMat);
+rainPoints.visible=false; rainPoints.frustumCulled=false; scene.add(rainPoints);
+const _baseBg = scene.background.clone(), _baseFog = scene.fog.color.clone();
+const _rainBg = new THREE.Color(0x6f7e8c), _rainFog = new THREE.Color(0x8a97a3);
+const _baseSun = sun.intensity, _baseHemi = hemiLight.intensity;
+const _skyWhite = new THREE.Color(0xffffff), _skyGrey = new THREE.Color(0x96a2ac);
+let rainT = 0, wet = 0;
+const umbrellas = [];
+const UMB_COLORS = [0xe24b6a,0x3f7fd0,0x49b04a,0xf2a83a,0x9a5fd0,0xe070b0];
+function makeUmbrella(color){
+  const g=new THREE.Group();
+  g.add(cone(0.68,0.46, color, 0,0.52,0,14));
+  for(let s=0;s<6;s++){ const a=s/6*Math.PI*2;
+    const rib=cone(0.06,0.12, color, Math.cos(a)*0.6,0.34,Math.sin(a)*0.6,4); g.add(rib); }
+  g.add(sph(0.07,0xffe7a0,0,0.78,0));
+  g.add(cyl(0.04,0.04,1.05,0x8a5a33,0,0.0,0,8));
+  toonify(g);
+  g.traverse(o=>{ if(o.isMesh && !o.userData.isOutline) o.receiveShadow=false; });
+  return g;
+}
+function giveUmbrella(k){
+  if(!k || umbrellas.find(u=>u.k===k)) return;
+  const g=makeUmbrella(UMB_COLORS[umbrellas.length%UMB_COLORS.length]);
+  scene.add(g); umbrellas.push({k, g});
+  puff(sparkTex, k.pos.clone().setY(2.2), 3, {size:0.5});
+}
+function clearUmbrellas(){ umbrellas.forEach(u=>scene.remove(u.g)); umbrellas.length=0; }
+function updateUmbrellas(){
+  for(const u of umbrellas){ const k=u.k, sc=k.g.scale.y||1;
+    u.g.position.set(k.pos.x + Math.sin(k.heading)*0.12, k.pos.y + (k.b.headTop||2.2)*sc*0.9 + 0.5, k.pos.z + Math.cos(k.heading)*0.12);
+  }
+}
+function makeRainHandoutEvt(){
+  const rino = kids.find(k=>k.name==='리노' && k.state==='play');
+  const friends = shuffle(kids.filter(k=>k.state==='play' && (!rino || k!==rino)));
+  if(!rino || friends.length<1){ kids.forEach(giveUmbrella); return null; }
+  friends.forEach((k,i)=>{ k._uPos = new THREE.Vector3(-4 + (i-(friends.length-1)/2)*2.8, 0, 6); });
+  [rino,...friends].forEach(k=>{ k.state='event'; k.gotoTarget=null; k.celebT=0; k.startleT=0; k.walkAmt=0; });
+  let phase='gather', pt=0, idx=0, cleaned=false;
+  const finish=()=>{ if(cleaned)return; cleaned=true; giveUmbrella(rino); release([rino,...friends]); };
+  return {kind:'rainUmbrella', cancel:finish, update(dt,t){
+    pt+=dt;
+    friends.forEach(k=>{ const d=k.moveToward(k._uPos,dt,0.95); if(d<0.5) faceKidToward(k, rino.pos, dt, 3); k.locomote(dt,t); });
+    if(phase==='gather'){
+      const d=rino.moveToward(new THREE.Vector3(-4,0,9),dt,1.1); rino.locomote(dt,t);
+      if(d<0.7 || pt>9){ phase='give'; pt=0; idx=0; rino.say('비 온다! 우산 나눠줄게~'); }
+    } else if(phase==='give'){
+      if(idx>=friends.length){ finish(); return true; }
+      const f=friends[idx];
+      const d=rino.moveToward(f.pos,dt,1.15); rino.locomote(dt,t); faceKidToward(rino,f.pos,dt);
+      if(d<2.0){ giveUmbrella(f); if(Math.random()<0.7) rino.say('여기 우산!'); f.say(pick(['고마워!','이제 안 젖겠다!','우산 좋아!'])); idx++; pt=0; }
+    }
+    return false;
+  }};
+}
+function startRain(){
+  if(rainT>0){ rainT = 300; return; }
+  rainT = 300; rainPoints.visible = true;
+  replaceMainEvent(()=>limitEventDuration(makeRainHandoutEvt(), 70));
+}
+function stopRain(){ rainT = 0; clearUmbrellas(); }
+function updateRain(dt){
+  const target = rainT>0 ? 1 : 0;
+  wet += (target - wet) * Math.min(1, dt*0.6);
+  if(wet > 0.003){
+    scene.background.copy(_baseBg).lerp(_rainBg, wet);
+    scene.fog.color.copy(_baseFog).lerp(_rainFog, wet);
+    sun.intensity = THREE.MathUtils.lerp(_baseSun, _baseSun*0.38, wet);
+    hemiLight.intensity = THREE.MathUtils.lerp(_baseHemi, _baseHemi*0.7, wet);
+    if(typeof sky!=='undefined' && sky) sky.material.color.copy(_skyWhite).lerp(_skyGrey, wet);
+  } else if(rainT<=0 && rainPoints.visible){
+    rainPoints.visible=false;
+    scene.background.copy(_baseBg); scene.fog.color.copy(_baseFog);
+    sun.intensity=_baseSun; hemiLight.intensity=_baseHemi;
+    if(typeof sky!=='undefined' && sky) sky.material.color.copy(_skyWhite);
+  }
+  if(rainT>0){
+    rainT -= dt;
+    const a=rainGeo.attributes.position.array;
+    for(let i=0;i<rainCount;i++){ a[i*3+1]-=dt*40; if(a[i*3+1]<0){ a[i*3+1]=46+Math.random()*4; a[i*3]=(Math.random()*2-1)*72; a[i*3+2]=-4+(Math.random()*2-1)*58; } }
+    rainGeo.attributes.position.needsUpdate=true;
+    if(rainT<=0) clearUmbrellas();
+  }
+  updateUmbrellas();
+}
+
 const EVENT_MAKERS = {
   race:makeRace, dance:makeDance, chat:makeChat, swing:makeSwingEvt,
   slide:makeSlideEvt, monkey:makeMonkeyClimbEvt, math:makeMathGuestEvt,
@@ -3827,6 +3961,7 @@ window.__ow = {
   forceCatBall:()=>replaceMainEvent(()=>limitEventDuration(makeCatBallEvt())),
   forceSoccer:()=>replaceMainEvent(()=>limitEventDuration(makeSoccerEvt())),
   forceSudalChalk:()=>replaceMainEvent(()=>limitEventDuration(makeSudalChalkEvt())),
+  startRain:()=>startRain(), stopRain:()=>stopRain(), getRainSeconds:()=>Math.max(0,Math.round(rainT)),
   forceDroneNyang:()=>replaceSkyEvent(()=>limitEventDuration(makeDroneNyangEvt(), MAX_EVENT_SECONDS, false)),
   forcePadakFly:()=>{ if(padakFlyEvt) return false; if(padak.state!=='play') return false; padakFlyEvt = makePadakFlyEvt(); return !!padakFlyEvt; },
   getAutoMonkeySeconds:()=>Math.max(0, Math.round(autoMonkeyTimer)),
@@ -3853,7 +3988,7 @@ window.__ow = {
   ['미끄럼틀','slide'], ['딱지치기','ddakji'], ['태권도 시범','taekwondo'], ['옆구르기','sideRoll'],
   ['큰 트램펄린','bigTramp'], ['딸기 나눔','strawberry'], ['뭉키 나무','monkey'], ['알라코 수학','math:alaco'],
   ['코기코 수학','math:cogico'], ['수학 랜덤','math'], ['고양이 공놀이','catBall'],
-  ['밤이 축구','soccer'], ['수달이 낙서','sudalChalk']
+  ['밤이 축구','soccer'], ['수달이 낙서','sudalChalk'], ['비 오는 날','rain']
 ].forEach(([label, name])=>{
   const b = document.createElement('button');
   b.type = 'button';
@@ -3865,6 +4000,7 @@ window.__ow = {
     else if(name === 'catBall') window.__ow.forceCatBall();
     else if(name === 'soccer') window.__ow.forceSoccer();
     else if(name === 'sudalChalk') window.__ow.forceSudalChalk();
+    else if(name === 'rain') window.__ow.startRain();
     else window.__ow.forceEvent(name);
   };
   eventButtonsEl.appendChild(b);
@@ -3922,6 +4058,8 @@ function animate(){
     }
   }
   updateSudalChalkFade(dt);
+  updateEventCamera(dt); /* 이벤트 자동 줌인/줌아웃 */
+  updateRain(dt);        /* 비 날씨 + 우산 */
 
   /* 파닥이 하늘 날기 */
   if(padakFlyEvt){
