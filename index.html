@@ -3885,17 +3885,119 @@ function updateRain(dt){
   updateUmbrellas();
 }
 
+/* ================= 돌돌이 리코더 대회 + 소년 한스 음악 ================= */
+let audioCtx=null;
+function ensureAudio(){ try{ if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended') audioCtx.resume(); }catch(e){} return audioCtx; }
+window.addEventListener('pointerdown', ensureAudio);
+const NOTE_HZ={C4:261.63,D4:293.66,E4:329.63,F4:349.23,G4:392.00,A4:440,C5:523.25};
+/* 소년 한스 (Hänschen klein) */
+const HANS=[
+  ['G4',1],['E4',1],['E4',2], ['F4',1],['D4',1],['D4',2],
+  ['C4',1],['D4',1],['E4',1],['F4',1], ['G4',1],['G4',1],['G4',2],
+  ['G4',1],['E4',1],['E4',2], ['F4',1],['D4',1],['D4',2],
+  ['C4',1],['E4',1],['G4',1],['G4',1], ['C4',3],['rest',1]
+];
+function playRecorderSong(){
+  const ctx=ensureAudio(); if(!ctx || ctx.state!=='running') return {stop(){}};
+  const master=ctx.createGain(); master.gain.value=0; master.connect(ctx.destination);
+  master.gain.linearRampToValueAtTime(0.16, ctx.currentTime+0.4);
+  let stopped=false; const beat=0.42;
+  const phrase=(start)=>{ let tt=start;
+    for(const [n,b] of HANS){ const dur=b*beat;
+      if(n!=='rest'){ const o=ctx.createOscillator(); o.type='triangle'; o.frequency.value=NOTE_HZ[n];
+        const g=ctx.createGain(); g.gain.setValueAtTime(0,tt); g.gain.linearRampToValueAtTime(0.85,tt+0.02);
+        g.gain.setValueAtTime(0.8,tt+dur*0.6); g.gain.linearRampToValueAtTime(0.0001,tt+dur*0.95);
+        o.connect(g); g.connect(master); o.start(tt); o.stop(tt+dur); }
+      tt+=dur; }
+    return tt; };
+  let nextAt=phrase(ctx.currentTime+0.15);
+  const iv=setInterval(()=>{ if(stopped)return; if(nextAt-ctx.currentTime<1.2) nextAt=phrase(nextAt); }, 700);
+  return { stop(){ if(stopped)return; stopped=true; clearInterval(iv);
+    try{ master.gain.cancelScheduledValues(ctx.currentTime); master.gain.setValueAtTime(master.gain.value||0.0001, ctx.currentTime); master.gain.linearRampToValueAtTime(0, ctx.currentTime+0.3); }catch(e){}
+    setTimeout(()=>{ try{ master.disconnect(); }catch(e){} }, 500); } };
+}
+const recorders=[];
+function makeRecorder(){
+  const g=new THREE.Group();
+  g.add(cyl(0.05,0.05,0.86, 0xf3e4c0, 0,0,0,8));
+  g.add(cyl(0.06,0.05,0.13, 0x6b4a2a, 0,0.46,0,8));
+  g.add(cyl(0.055,0.075,0.1, 0xddc9a0, 0,-0.45,0,8));
+  for(let i=0;i<4;i++) g.add(sph(0.018,0x3a2a1a, 0,0.22-i*0.14,0.05));
+  toonify(g);
+  g.traverse(o=>{ if(o.isMesh&&!o.userData.isOutline) o.receiveShadow=false; });
+  return g;
+}
+function updateRecorders(){
+  for(const r of recorders){ const k=r.k, h=k.heading, sc=k.g.scale.y||1;
+    r.g.position.set(k.pos.x+Math.sin(h)*0.4, k.pos.y + (k.b.headTop||2.2)*sc*0.58, k.pos.z+Math.cos(h)*0.4);
+    r.g.rotation.set(1.15, h, 0);
+  }
+}
+function makeRecorderContestEvt(){
+  const host = kids.find(k=>k.name==='돌돌이' && k.state==='play');
+  if(!host) return null;
+  const performers = shuffle(kids.filter(k=>k.state==='play' && k!==host)).slice(0,6);
+  if(performers.length<2) return null;
+  const center = new THREE.Vector3(8,0,21), R=3.6;
+  const hostSpot = new THREE.Vector3(8,0,14.5);
+  performers.forEach((k,i)=>{ k._rcAng = -1.05 + (i/(performers.length-1||1))*2.1; });
+  [host,...performers].forEach(k=>{ k.state='event'; k.gotoTarget=null; k.celebT=0; k.startleT=0; k.walkAmt=0; });
+  const recs=[];
+  let phase='gather', pt=0, cleaned=false, song=null;
+  const cue=cueRunner(), tv=new THREE.Vector3();
+  const finish=()=>{ if(cleaned)return; cleaned=true; if(song)song.stop();
+    recs.forEach(r=>scene.remove(r.g)); recorders.length=0;
+    [host,...performers].forEach(k=>{ if(k.b.arms){ k.b.arms[0].rotation.set(0,0,0); k.b.arms[1].rotation.set(0,0,0); } });
+    release([host,...performers]); };
+  return {kind:'recorder', cancel:finish, update(dt,t){
+    pt+=dt;
+    if(phase==='gather'){
+      let all=true;
+      const hd=host.moveToward(hostSpot,dt,1.0); host.locomote(dt,t); if(hd>=0.6) all=false;
+      performers.forEach(k=>{ tv.set(center.x+Math.sin(k._rcAng)*R, 0, center.z+Math.cos(k._rcAng)*R*0.5);
+        const d=k.moveToward(tv,dt,0.95); k.locomote(dt,t); if(d>=0.6) all=false; });
+      if(all || pt>9){ phase='play'; pt=0;
+        performers.forEach(k=>{ const g=makeRecorder(); scene.add(g); recs.push({k,g}); recorders.push({k,g}); });
+        song = playRecorderSong();
+        cue.add(0.2, host, '리코더 대회 시작! 다같이 소년 한스~');
+      }
+    } else if(phase==='play'){
+      cue.run(pt);
+      host.idle(); faceKidToward(host, center, dt); host.locomote(dt,t);
+      if(host.b.arms){ host.b.arms[0].rotation.z=1.4+Math.sin(t*4)*0.5; host.b.arms[1].rotation.z=-1.4-Math.sin(t*4)*0.5; }
+      performers.forEach((k,i)=>{ k.idle(); faceKidToward(k, hostSpot, dt, 3); k.locomote(dt,t);
+        k.g.position.y = Math.abs(Math.sin(t*2.2+i))*0.12;
+        if(k.b.arms){ k.b.arms[0].rotation.x=-1.3; k.b.arms[1].rotation.x=-1.3; }
+        if(Math.random()<dt*0.5) puff(noteTex, k.pos.clone().setY(2.5),1,{size:0.5});
+      });
+      if(pt>3 && Math.random()<dt*0.12) host.say(pick(['잘한다!','박자 맞춰서~','멋져요!','소년 한스 좋아!']));
+      if(pt>36){ phase='end'; pt=0; cue.add(0.2, host, '참 잘했어요! 짝짝짝!'); }
+    } else {
+      cue.run(36+pt);
+      if(song){ song.stop(); song=null; }
+      [host,...performers].forEach(k=>{ k.idle(); k.locomote(dt,t);
+        if(k.b.arms){ k.b.arms[0].rotation.x*=Math.max(0,1-dt*4); k.b.arms[1].rotation.x*=Math.max(0,1-dt*4);
+          k.b.arms[0].rotation.z*=Math.max(0,1-dt*4); k.b.arms[1].rotation.z*=Math.max(0,1-dt*4); } });
+      if(Math.random()<dt*3) puff(Math.random()<0.5?heartTex:sparkTex, center.clone().setY(2.6),1,{size:0.5});
+      if(pt>2.6){ finish(); return true; }
+    }
+    return false;
+  }};
+}
+
 const EVENT_MAKERS = {
   race:makeRace, dance:makeDance, chat:makeChat, swing:makeSwingEvt,
   slide:makeSlideEvt, monkey:makeMonkeyClimbEvt, math:makeMathGuestEvt,
   catBall:makeCatBallEvt, sudalChalk:makeSudalChalkEvt,
   soccer:makeSoccerEvt,
   ddakji:makeDdakjiEvt, taekwondo:makeTaekwondoEvt, sideRoll:makeSideRollEvt,
-  bigTramp:makeBigTrampolineEvt, strawberry:makeStrawberryShareEvt
+  bigTramp:makeBigTrampolineEvt, strawberry:makeStrawberryShareEvt,
+  recorder:makeRecorderContestEvt
 };
-const RANDOM_EVENT_KEYS = ['race','dance','chat','swing','slide','ddakji','sideRoll','bigTramp','strawberry','taekwondo','race','ddakji'];
-const AUTO_MONKEY_MIN_SECONDS = 540;
-const AUTO_MONKEY_JITTER_SECONDS = 120;
+/* 드물던 것(math/catBall/soccer)도 랜덤 풀에 넣어 하루 종일 골고루 발생 */
+const RANDOM_EVENT_KEYS = ['race','dance','chat','swing','slide','ddakji','sideRoll','bigTramp','strawberry','taekwondo','recorder','math','catBall','soccer'];
+const AUTO_MONKEY_MIN_SECONDS = 570;   /* ~10분에 한 번 */
+const AUTO_MONKEY_JITTER_SECONDS = 60;
 function nextAutoMonkeyDelay(){ return AUTO_MONKEY_MIN_SECONDS + Math.random()*AUTO_MONKEY_JITTER_SECONDS; }
 let autoMonkeyTimer = nextAutoMonkeyDelay();
 function resetAutoMonkeyTimer(){ autoMonkeyTimer = nextAutoMonkeyDelay(); }
@@ -3988,7 +4090,7 @@ window.__ow = {
   ['미끄럼틀','slide'], ['딱지치기','ddakji'], ['태권도 시범','taekwondo'], ['옆구르기','sideRoll'],
   ['큰 트램펄린','bigTramp'], ['딸기 나눔','strawberry'], ['뭉키 나무','monkey'], ['알라코 수학','math:alaco'],
   ['코기코 수학','math:cogico'], ['수학 랜덤','math'], ['고양이 공놀이','catBall'],
-  ['밤이 축구','soccer'], ['수달이 낙서','sudalChalk'], ['비 오는 날','rain']
+  ['밤이 축구','soccer'], ['수달이 낙서','sudalChalk'], ['비 오는 날','rain'], ['리코더 대회','recorder']
 ].forEach(([label, name])=>{
   const b = document.createElement('button');
   b.type = 'button';
@@ -4041,14 +4143,14 @@ function animate(){
   }
 
   /* 이벤트 진행/예약 */
+  autoMonkeyTimer -= dt; /* 뭉키 타이머는 이벤트 중에도 흘러 ~10분마다 보장 */
   if(evt){
-    if(evt.update(dt, t)){ evt = null; evtTimer = 34 + Math.random()*26; }
+    if(evt.update(dt, t)){ evt = null; evtTimer = 28 + Math.random()*20; }
   } else {
-    autoMonkeyTimer -= dt;
     const scheduled = tryStartScheduledSudalChalk() || tryStartScheduledCatBallEvent() || tryStartScheduledMathEvent() || tryStartScheduledSoccer() || tryStartScheduledMonkeyClimb();
     if(scheduled){
       evt = scheduled;
-      evtTimer = 34 + Math.random()*26;
+      evtTimer = 28 + Math.random()*20;
     } else {
       evtTimer -= dt;
       if(evtTimer <= 0){
@@ -4060,6 +4162,7 @@ function animate(){
   updateSudalChalkFade(dt);
   updateEventCamera(dt); /* 이벤트 자동 줌인/줌아웃 */
   updateRain(dt);        /* 비 날씨 + 우산 */
+  updateRecorders();     /* 리코더 위치 따라가기 */
 
   /* 파닥이 하늘 날기 */
   if(padakFlyEvt){
