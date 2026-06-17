@@ -2062,9 +2062,10 @@ function computeEventFocus(){
     minz=Math.min(minz,k.pos.z); maxz=Math.max(maxz,k.pos.z); }
   cx/=ek.length; cz/=ek.length;
   const spread = Math.max(maxx-minx, maxz-minz, 5);
-  const dist = THREE.MathUtils.clamp(spread*1.4 + 13, 18, 80);
-  return { target:new THREE.Vector3(cx, 2.4, cz),
-    camPos:new THREE.Vector3(cx, dist*0.62, cz + dist*0.86) };
+  const dist = THREE.MathUtils.clamp(spread*1.05 + 7, 13, 56); /* 더 가깝게 */
+  return { target:new THREE.Vector3(cx, 2.2, cz),
+    /* 약간 측면(앞-오른쪽 3/4) + 낮은 높이로 전체가 보이게 */
+    camPos:new THREE.Vector3(cx + dist*0.62, dist*0.46, cz + dist*0.66) };
 }
 function updateEventCamera(dt){
   if(evt && evt!==camEvtRef){ camEvtRef=evt; camZoomDelay=3.0; camZoomed=false; }
@@ -3901,7 +3902,7 @@ function playRecorderSong(){
   const ctx=ensureAudio(); if(!ctx || ctx.state!=='running') return {stop(){}};
   const master=ctx.createGain(); master.gain.value=0; master.connect(ctx.destination);
   master.gain.linearRampToValueAtTime(0.16, ctx.currentTime+0.4);
-  let stopped=false; const beat=0.42;
+  let stopped=false; const beat=0.62;
   const phrase=(start)=>{ let tt=start;
     for(const [n,b] of HANS){ const dur=b*beat;
       if(n!=='rest'){ const o=ctx.createOscillator(); o.type='triangle'; o.frequency.value=NOTE_HZ[n];
@@ -3919,18 +3920,20 @@ function playRecorderSong(){
 const recorders=[];
 function makeRecorder(){
   const g=new THREE.Group();
-  g.add(cyl(0.05,0.05,0.86, 0xf3e4c0, 0,0,0,8));
-  g.add(cyl(0.06,0.05,0.13, 0x6b4a2a, 0,0.46,0,8));
-  g.add(cyl(0.055,0.075,0.1, 0xddc9a0, 0,-0.45,0,8));
-  for(let i=0;i<4;i++) g.add(sph(0.018,0x3a2a1a, 0,0.22-i*0.14,0.05));
+  g.add(cyl(0.085,0.075,1.6, 0xfff0d2, 0,0,0,12));        /* 긴 몸통 */
+  g.add(cyl(0.1,0.085,0.3, 0x7a5230, 0,0.9,0,12));         /* 입에 무는 윗부분(beak) */
+  g.add(box(0.07,0.06,0.05, 0x241510, 0,0.66,0.085));      /* 취구(window) */
+  g.add(cyl(0.085,0.14,0.22, 0xe7cfa0, 0,-0.86,0,12));     /* 아래 벨(나팔) */
+  for(let i=0;i<6;i++) g.add(sph(0.03,0x241510, 0,0.46-i*0.17,0.082)); /* 앞 구멍 6개 */
+  g.add(sph(0.028,0x241510, 0,0.1,-0.082));                /* 뒤 엄지 구멍 */
   toonify(g);
   g.traverse(o=>{ if(o.isMesh&&!o.userData.isOutline) o.receiveShadow=false; });
   return g;
 }
 function updateRecorders(){
   for(const r of recorders){ const k=r.k, h=k.heading, sc=k.g.scale.y||1;
-    r.g.position.set(k.pos.x+Math.sin(h)*0.4, k.pos.y + (k.b.headTop||2.2)*sc*0.58, k.pos.z+Math.cos(h)*0.4);
-    r.g.rotation.set(1.15, h, 0);
+    r.g.position.set(k.pos.x+Math.sin(h)*0.55, k.pos.y + (k.b.headTop||2.2)*sc*0.5, k.pos.z+Math.cos(h)*0.55);
+    r.g.rotation.set(-0.85, h, 0); /* 입(위)은 얼굴쪽, 벨(아래)은 앞·아래로 */
   }
 }
 function makeRecorderContestEvt(){
@@ -3938,8 +3941,8 @@ function makeRecorderContestEvt(){
   if(!host) return null;
   const performers = shuffle(kids.filter(k=>k.state==='play' && k!==host)).slice(0,6);
   if(performers.length<2) return null;
-  const center = new THREE.Vector3(8,0,21), R=3.6;
-  const hostSpot = new THREE.Vector3(8,0,14.5);
+  const center = new THREE.Vector3(0,0,-3), R=4.2;   /* 운동장 가운데 */
+  const hostSpot = new THREE.Vector3(0,0,4);
   performers.forEach((k,i)=>{ k._rcAng = -1.05 + (i/(performers.length-1||1))*2.1; });
   [host,...performers].forEach(k=>{ k.state='event'; k.gotoTarget=null; k.celebT=0; k.startleT=0; k.walkAmt=0; });
   const recs=[];
@@ -3967,8 +3970,10 @@ function makeRecorderContestEvt(){
       if(host.b.arms){ host.b.arms[0].rotation.z=1.4+Math.sin(t*4)*0.5; host.b.arms[1].rotation.z=-1.4-Math.sin(t*4)*0.5; }
       performers.forEach((k,i)=>{ k.idle(); faceKidToward(k, hostSpot, dt, 3); k.locomote(dt,t);
         k.g.position.y = Math.abs(Math.sin(t*2.2+i))*0.12;
-        if(k.b.arms){ k.b.arms[0].rotation.x=-1.3; k.b.arms[1].rotation.x=-1.3; }
-        if(Math.random()<dt*0.5) puff(noteTex, k.pos.clone().setY(2.5),1,{size:0.5});
+        if(k.b.arms){ /* 양팔로 리코더를 앞에서 잡기 */
+          k.b.arms[0].rotation.x=-1.55; k.b.arms[0].rotation.z=0.28;
+          k.b.arms[1].rotation.x=-1.55; k.b.arms[1].rotation.z=-0.28; }
+        if(Math.random()<dt*0.5) puff(noteTex, k.pos.clone().setY(2.7),1,{size:0.5});
       });
       if(pt>3 && Math.random()<dt*0.12) host.say(pick(['잘한다!','박자 맞춰서~','멋져요!','소년 한스 좋아!']));
       if(pt>36){ phase='end'; pt=0; cue.add(0.2, host, '참 잘했어요! 짝짝짝!'); }
